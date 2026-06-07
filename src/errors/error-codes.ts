@@ -1,0 +1,26 @@
+export const ErrorCodes = {
+  AUTHENTICATION_REQUIRED: { httpStatus: 401, title: 'Authentication required' },
+  FORBIDDEN: { httpStatus: 403, title: 'Forbidden' },
+  EMPLOYEE_NOT_FOUND: { httpStatus: 404, title: 'Employee not found' },
+  NOT_FOUND: { httpStatus: 404, title: 'Resource not found' },
+  VALIDATION_ERROR: { httpStatus: 422, title: 'Validation error' },
+  EMPLOYEE_INACTIVE: { httpStatus: 422, title: 'Employee inactive' },
+  LEAVE_TYPE_NOT_FOUND: { httpStatus: 422, title: 'Leave type not found' },
+  NOT_ELIGIBLE: { httpStatus: 422, title: 'Not eligible' },
+  POLICY_VIOLATION: { httpStatus: 422, title: 'Policy violation' },
+  APPROVER_NOT_FOUND: { httpStatus: 422, title: 'Approver not found' },
+  INVALID_DATE_RANGE: { httpStatus: 422, title: 'Invalid date range' },
+  OVERLAPPING_REQUEST: { httpStatus: 422, title: 'Overlapping request' },
+  INSUFFICIENT_BALANCE: { httpStatus: 422, title: 'Insufficient balance' },
+  INVALID_TIME_OFF_DIMENSIONS: { httpStatus: 422, title: 'Invalid time off dimensions' },
+  HCM_VALIDATION_ERROR: { httpStatus: 422, title: 'HCM validation error' },
+  HCM_INSUFFICIENT_BALANCE: { httpStatus: 422, title: 'HCM insufficient balance' },
+  DOCUMENTATION_REQUIRED: { httpStatus: 422, title: 'Documentation required' },
+  INVALID_LEAVE_DAY: { httpStatus: 422, title: 'Invalid leave day' },
+  INVALID_WORKFLOW_TRANSITION: { httpStatus: 422, title: 'Invalid workflow transition' },
+  APPROVAL_NOT_PENDING: { httpStatus: 422, title: 'Approval not pending' },
+  HCM_UNAVAILABLE: { httpStatus: 503, title: 'HCM unavailable' },
+  SYNC_IN_PROGRESS: { httpStatus: 409, title: 'Sync in progress' },
+} as const;
+
+export type ErrorCode = keyof typeof ErrorCodes;

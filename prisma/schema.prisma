@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+  ON_LEAVE
+}
+
+enum LeaveRequestStatus {
+  DRAFT
+  PENDING
+  APPROVED_PENDING_HCM_UPDATE
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PartialDayType {
+  NONE
+  AM
+  PM
+  HOURS
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LedgerEntryType {
+  OPENING_BALANCE
+  PENDING_RESERVATION
+  CONFIRMED_USAGE
+  RESERVATION_RELEASE
+  USAGE_REVERSAL
+  SYNC_ADJUSTMENT
+}
+
+enum LedgerEntrySource {
+  WORKFLOW
+  HCM_REALTIME_RESPONSE
+  HCM_NIGHTLY_RECONCILIATION
+}
+
+enum SyncStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+  IN_PROGRESS
+}
+
+enum NotificationType {
+  REQUEST_SUBMITTED
+  REQUEST_APPROVED
+  APPROVAL_PENDING_HCM_UPDATE
+  HCM_APPROVAL_SYNC_FAILED
+  REQUEST_REJECTED
+  REQUEST_CANCELLED
+  APPROVAL_OVERDUE
+  LOW_BALANCE
+  SYNC_FAILURE
+}
+
+enum AuditAction {
+  LEAVE_REQUEST_CREATED
+  LEAVE_REQUEST_UPDATED
+  LEAVE_REQUEST_CANCELLED
+  APPROVAL_DECISION
+  BALANCE_ADJUSTMENT
+  POLICY_CHANGED
+  SYNC_OPERATION
+  ADMIN_ACTION
+}
+
+model EmployeeHcmMapping {
+  id                        String           @id @default(uuid())
+  externalEmployeeId        String           @unique
+  email                     String
+  managerExternalEmployeeId String?
+  managerId                 String?
+  department                String?
+  employmentStatus          EmploymentStatus
+  syncCorrelationKey        String?
+  lastSyncedAt              DateTime
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+
+  manager                   EmployeeHcmMapping?  @relation("ManagerReports", fields: [managerId], references: [id])
+  directReports             EmployeeHcmMapping[] @relation("ManagerReports")
+  leaveBalances             LeaveBalance[]
+  ledgerEntries             LeaveBalanceLedger[]
+  leaveRequests             LeaveRequest[]
+  approvals                 Approval[]           @relation("Approver")
+  notifications             Notification[]
+
+  @@map("employee_hcm_mappings")
+}
+
+model TimeOffSyncState {
+  id                  String      @id @default(uuid())
+  syncSource          String
+  lastSyncStartedAt   DateTime?
+  lastSyncCompletedAt DateTime?
+  lastSyncStatus      SyncStatus  @default(IN_PROGRESS)
+  lastSyncCursor      String?
+  errorDetails        Json?
+  syncInProgress      Boolean     @default(false)
+  updatedAt           DateTime    @updatedAt
+
+  @@map("time_off_sync_state")
+}
+
+model LeaveType {
+  id                   String   @id @default(uuid())
+  externalLeaveTypeId  String   @unique
+  code                 String   @unique
+  name                 String
+  description          String?
+  isPaid               Boolean  @default(true)
+  requiresApproval     Boolean  @default(true)
+  requiresDocumentation  Boolean  @default(false)
+  allowPartialDay      Boolean  @default(true)
+  isActive             Boolean  @default(true)
+  lastSyncedAt         DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  policies      LeavePolicy[]
+  balances      LeaveBalance[]
+  ledgerEntries LeaveBalanceLedger[]
+  leaveRequests LeaveRequest[]
+
+  @@map("leave_types")
+}
+
+model LeavePolicy {
+  id               String    @id @default(uuid())
+  externalPolicyId String    @unique
+  leaveTypeId      String
+  name             String
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  location         String?
+  department       String?
+  employmentType   String?
+  minTenureDays    Int?
+  isActive         Boolean   @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  leaveType LeaveType         @relation(fields: [leaveTypeId], references: [id])
+  rules     LeavePolicyRule[]
+
+  @@map("leave_policies")
+}
+
+model LeavePolicyRule {
+  id       String @id @default(uuid())
+  policyId String
+  ruleType String
+  config   Json
+  priority Int    @default(0)
+
+  policy LeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@map("leave_policy_rules")
+}
+
+model LeaveBalance {
+  id             String   @id @default(uuid())
+  employeeId     String
+  leaveTypeId    String
+  dimensions     Json
+  dimensionsHash String
+  currentBalance Decimal
+  unit           String   @default("days")
+  lastSyncedAt   DateTime?
+  hcmUpdatedAt   DateTime?
+  updatedAt      DateTime @updatedAt
+
+  employee  EmployeeHcmMapping @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType          @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([employeeId, leaveTypeId, dimensionsHash])
+  @@map("leave_balances")
+}
+
+model LeaveBalanceLedger {
+  id             String            @id @default(uuid())
+  employeeId     String
+  leaveTypeId    String
+  dimensions     Json
+  dimensionsHash String
+  entryType      LedgerEntryType
+  amount         Decimal
+  source         LedgerEntrySource
+  leaveRequestId String?
+  approvalId     String?
+  hcmReferenceId String?
+  syncRunId      String?
+  idempotencyKey String?           @unique
+  effectiveAt    DateTime
+  createdAt      DateTime          @default(now())
+
+  employee     EmployeeHcmMapping @relation(fields: [employeeId], references: [id])
+  leaveType    LeaveType          @relation(fields: [leaveTypeId], references: [id])
+  leaveRequest LeaveRequest?      @relation(fields: [leaveRequestId], references: [id])
+  approval     Approval?          @relation(fields: [approvalId], references: [id])
+  syncRun      SyncRun?           @relation(fields: [syncRunId], references: [id])
+
+  @@map("leave_balance_ledger")
+}
+
+model LeaveRequest {
+  id                String             @id @default(uuid())
+  employeeId        String
+  leaveTypeId       String
+  startDate         DateTime
+  endDate           DateTime
+  durationDays      Decimal
+  partialDayType    PartialDayType     @default(NONE)
+  partialDayHours   Decimal?
+  dimensions        Json
+  status            LeaveRequestStatus @default(DRAFT)
+  reason            String?
+  submittedAt       DateTime?
+  cancelledAt       DateTime?
+  hcmReferenceId    String?
+  hcmPostedAt       DateTime?
+  hcmRetryStartedAt DateTime?
+  hcmRetryDeadlineAt DateTime?
+  hcmRetryCount     Int                @default(0)
+  lastHcmRetryAt    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  employee      EmployeeHcmMapping   @relation(fields: [employeeId], references: [id])
+  leaveType     LeaveType            @relation(fields: [leaveTypeId], references: [id])
+  approvals     Approval[]
+  ledgerEntries LeaveBalanceLedger[]
+
+  @@map("leave_requests")
+}
+
+model Approval {
+  id                 String           @id @default(uuid())
+  leaveRequestId     String
+  approverEmployeeId String
+  approvalLevel      Int
+  decision           ApprovalDecision @default(PENDING)
+  comment            String?
+  decidedAt          DateTime?
+  createdAt          DateTime         @default(now())
+
+  leaveRequest     LeaveRequest       @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  approverEmployee EmployeeHcmMapping @relation("Approver", fields: [approverEmployeeId], references: [id])
+  ledgerEntries    LeaveBalanceLedger[]
+
+  @@map("approvals")
+}
+
+model Holiday {
+  id       String   @id @default(uuid())
+  name     String
+  date     DateTime
+  location String?
+  isActive Boolean  @default(true)
+
+  @@map("holidays")
+}
+
+model Notification {
+  id                  String           @id @default(uuid())
+  type                NotificationType
+  recipientEmployeeId String?
+  payload             Json
+  deliveredAt         DateTime?
+  createdAt           DateTime         @default(now())
+
+  recipientEmployee EmployeeHcmMapping? @relation(fields: [recipientEmployeeId], references: [id])
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id            String      @id @default(uuid())
+  action        AuditAction
+  actorId       String?
+  actorRole     String?
+  resourceType  String
+  resourceId    String
+  before        Json?
+  after         Json?
+  correlationId String?
+  createdAt     DateTime    @default(now())
+
+  @@map("audit_logs")
+}
+
+model SyncRun {
+  id              String     @id @default(uuid())
+  syncType        String
+  status          SyncStatus
+  correlationId   String
+  startedAt       DateTime
+  completedAt     DateTime?
+  employeeCount   Int?
+  balanceCount    Int?
+  adjustmentCount Int?
+  errorDetails    Json?
+  createdAt       DateTime   @default(now())
+
+  ledgerEntries LeaveBalanceLedger[]
+
+  @@map("sync_runs")
+}
+
+model IntegrationEvent {
+  id          String    @id @default(uuid())
+  source      String
+  eventType   String
+  payload     Json
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@map("integration_events")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  route        String
+  responseBody Json
+  statusCode   Int
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@map("idempotency_keys")
+}
