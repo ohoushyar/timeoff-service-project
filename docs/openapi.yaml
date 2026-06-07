@@ -1,0 +1,1263 @@
+openapi: 3.0.3
+info:
+  title: Time Off Service API
+  version: 0.1.0
+  description: |
+    MyCompany time-off microservice. JSON:API v1.1 over `application/vnd.api+json`.
+
+    **Authentication:** Bearer JWT (HS256). Mint test tokens with `npm run tools:jwt`.
+
+    **Correlation:** Send optional `X-Correlation-Id`; echoed in responses and error `meta`.
+
+    Documents **implemented** Phase 1 endpoints only. See [spec.md](spec.md) for the full roadmap.
+  contact:
+    name: Time Off Service
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Liveness and readiness probes (no auth)
+  - name: Employees
+    description: HCM employee mappings
+  - name: Sync
+    description: HCM batch sync and status
+  - name: Leave Types
+    description: Read-only leave type catalog (synced from HCM)
+  - name: Policies
+    description: Read-only leave policies (synced from HCM)
+  - name: Leave Requests
+    description: Employee time-off requests
+  - name: Approvals
+    description: Manager approval workflow
+  - name: Balances
+    description: Leave balances and workflow ledger
+
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      description: Returns 200 when the process is running.
+      operationId: healthLive
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthLiveResponse'
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: Returns 200 when the database is reachable; 503 otherwise.
+      operationId: healthReady
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReadyResponse'
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthNotReadyResponse'
+
+  /api/v1/employees/{id}:
+    get:
+      tags: [Employees]
+      summary: Get employee
+      description: Returns the HCM employee mapping. Access scoped to self, manager chain, or privileged roles.
+      operationId: getEmployee
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Employee resource
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/EmployeeDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/employees/{id}/balances:
+    get:
+      tags: [Balances]
+      summary: List employee balances
+      description: Current leave balances by type. Refreshes from HCM on read. Scoped to self, direct manager, or privileged roles.
+      operationId: getEmployeeBalances
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Balance collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveBalanceCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/employees/{id}/balance-ledger:
+    get:
+      tags: [Balances]
+      summary: List balance ledger entries
+      description: Workflow and reconciliation ledger for an employee (paginated, newest first).
+      operationId: getEmployeeBalanceLedger
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Ledger entry collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LedgerCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/sync/time-off:
+    post:
+      tags: [Sync]
+      summary: Trigger HCM sync
+      description: Runs the full HCM batch sync pipeline (employees, leave types, policies, balances).
+      operationId: triggerSync
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '201':
+          description: Sync started/completed
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/SyncRunDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Sync already in progress
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/JsonApiErrorDocument'
+
+  /api/v1/sync/status:
+    get:
+      tags: [Sync]
+      summary: Get sync status
+      description: Last sync metadata, staleness, and counts.
+      operationId: getSyncStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Current sync status
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/SyncStatusDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/leave-types:
+    get:
+      tags: [Leave Types]
+      summary: List leave types
+      description: Paginated list of active leave types synced from HCM.
+      operationId: listLeaveTypes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Leave type collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveTypeCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/policies:
+    get:
+      tags: [Policies]
+      summary: List policies
+      description: Paginated leave policies. Requires `hr_admin` or `system_admin`.
+      operationId: listPolicies
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Policy collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/PolicyCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/leave-requests:
+    get:
+      tags: [Leave Requests]
+      summary: List leave requests
+      description: |
+        Paginated list. Non-privileged users see only their own requests.
+        Privileged roles may filter by `filter[employeeId]` and `filter[status]`.
+      operationId: listLeaveRequests
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - name: filter[status]
+          in: query
+          schema:
+            type: string
+            enum:
+              - DRAFT
+              - PENDING
+              - APPROVED_PENDING_HCM_UPDATE
+              - APPROVED
+              - REJECTED
+              - CANCELLED
+        - name: filter[employeeId]
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Leave request collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Leave Requests]
+      summary: Create leave request
+      description: "Creates a leave request. Set submit: true to submit for approval immediately."
+      operationId: createLeaveRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/vnd.api+json:
+            schema:
+              $ref: '#/components/schemas/CreateLeaveRequestBody'
+            example:
+              data:
+                type: leave-requests
+                attributes:
+                  startDate: '2026-07-10'
+                  endDate: '2026-07-12'
+                  partialDay: NONE
+                  reason: Family travel
+                  submit: true
+                  dimensions:
+                    locationId: US-NY
+                relationships:
+                  employee:
+                    data:
+                      type: employees
+                      id: '{employeeId}'
+                  leaveType:
+                    data:
+                      type: leave-types
+                      id: '{leaveTypeId}'
+      responses:
+        '201':
+          description: Created leave request
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/leave-requests/{id}:
+    get:
+      tags: [Leave Requests]
+      summary: Get leave request
+      operationId: getLeaveRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Leave request resource
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/leave-requests/{id}/cancel:
+    post:
+      tags: [Leave Requests]
+      summary: Cancel leave request
+      description: Cancels a request in `PENDING`, `APPROVED_PENDING_HCM_UPDATE`, or `DRAFT` status.
+      operationId: cancelLeaveRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Cancelled leave request
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/leave-requests/{id}/approve:
+    post:
+      tags: [Approvals]
+      summary: Approve leave request
+      description: Approves the current workflow step. Posts to HCM when fully approved.
+      operationId: approveLeaveRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        content:
+          application/vnd.api+json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionBody'
+      responses:
+        '200':
+          description: Updated leave request
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/leave-requests/{id}/reject:
+    post:
+      tags: [Approvals]
+      summary: Reject leave request
+      operationId: rejectLeaveRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeaveRequestId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        content:
+          application/vnd.api+json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionBody'
+      responses:
+        '200':
+          description: Rejected leave request
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/approvals/pending:
+    get:
+      tags: [Approvals]
+      summary: List pending approvals
+      description: Pending approval steps for the authenticated manager. Requires `manager`, `hr_admin`, or `system_admin`.
+      operationId: listPendingApprovals
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Approval collection
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/ApprovalCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        HS256 JWT. Claims: `sub`, `roles[]`, optional `employeeId`.
+        Roles: `employee`, `manager`, `hr_admin`, `system_admin`, `integration_client`.
+
+  parameters:
+    EmployeeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Internal employee UUID
+    LeaveRequestId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageNumber:
+      name: page[number]
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page[size]
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Optional trace ID; generated if omitted
+
+  headers:
+    CorrelationId:
+      description: Request correlation ID
+      schema:
+        type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: '#/components/schemas/JsonApiErrorDocument'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: '#/components/schemas/JsonApiErrorDocument'
+    NotFound:
+      description: Resource not found
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: '#/components/schemas/JsonApiErrorDocument'
+    UnprocessableEntity:
+      description: Business rule or validation failure
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: '#/components/schemas/JsonApiErrorDocument'
+
+  schemas:
+    HealthLiveResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    HealthReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ready
+
+    HealthNotReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: not ready
+
+    JsonApiVersion:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+          example: '1.1'
+
+    JsonApiError:
+      type: object
+      properties:
+        status:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        source:
+          type: object
+          properties:
+            pointer:
+              type: string
+
+    JsonApiErrorDocument:
+      type: object
+      required: [jsonapi, errors]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/JsonApiError'
+        meta:
+          type: object
+          properties:
+            correlationId:
+              type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        totalCount:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+
+    PaginationLinks:
+      type: object
+      properties:
+        self:
+          type: string
+        next:
+          type: string
+        prev:
+          type: string
+
+    ResourceIdentifier:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+
+    RelationshipData:
+      type: object
+      properties:
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/ResourceIdentifier'
+            - type: 'null'
+
+    EmployeeAttributes:
+      type: object
+      properties:
+        externalEmployeeId:
+          type: string
+        department:
+          type: string
+        employmentStatus:
+          type: string
+          enum: [ACTIVE, INACTIVE, TERMINATED, ON_LEAVE]
+        lastSyncedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EmployeeResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [employees]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/EmployeeAttributes'
+        relationships:
+          type: object
+          properties:
+            manager:
+              $ref: '#/components/schemas/RelationshipData'
+
+    EmployeeDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          $ref: '#/components/schemas/EmployeeResource'
+
+    LeaveTypeAttributes:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        isPaid:
+          type: boolean
+        requiresApproval:
+          type: boolean
+        requiresDocumentation:
+          type: boolean
+        allowPartialDay:
+          type: boolean
+        isActive:
+          type: boolean
+        lastSyncedAt:
+          type: string
+          format: date-time
+
+    LeaveTypeResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [leave-types]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/LeaveTypeAttributes'
+
+    LeaveTypeCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveTypeResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PolicyAttributes:
+      type: object
+      properties:
+        externalPolicyId:
+          type: string
+        name:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: string
+          format: date-time
+        location:
+          type: string
+        department:
+          type: string
+        employmentType:
+          type: string
+        minTenureDays:
+          type: integer
+        isActive:
+          type: boolean
+
+    PolicyResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [policies]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/PolicyAttributes'
+        relationships:
+          type: object
+          properties:
+            leaveType:
+              $ref: '#/components/schemas/RelationshipData'
+
+    PolicyCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    LeaveRequestAttributes:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        durationDays:
+          type: number
+        partialDayType:
+          type: string
+          enum: [NONE, START, END, BOTH]
+        partialDayHours:
+          type: number
+        dimensions:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+            - DRAFT
+            - PENDING
+            - APPROVED_PENDING_HCM_UPDATE
+            - APPROVED
+            - REJECTED
+            - CANCELLED
+        reason:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        cancelledAt:
+          type: string
+          format: date-time
+        hcmReferenceId:
+          type: string
+        hcmPostedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    LeaveRequestResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [leave-requests]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/LeaveRequestAttributes'
+        relationships:
+          type: object
+          properties:
+            employee:
+              $ref: '#/components/schemas/RelationshipData'
+            leaveType:
+              $ref: '#/components/schemas/RelationshipData'
+
+    LeaveRequestDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          $ref: '#/components/schemas/LeaveRequestResource'
+
+    LeaveRequestCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRequestResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateLeaveRequestBody:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, attributes, relationships]
+          properties:
+            type:
+              type: string
+              enum: [leave-requests]
+            attributes:
+              type: object
+              required: [startDate, endDate]
+              properties:
+                startDate:
+                  type: string
+                  format: date
+                endDate:
+                  type: string
+                  format: date
+                partialDay:
+                  type: string
+                  enum: [NONE, START, END, BOTH]
+                  default: NONE
+                partialDayHours:
+                  type: number
+                reason:
+                  type: string
+                submit:
+                  type: boolean
+                  default: false
+                documentationProvided:
+                  type: boolean
+                dimensions:
+                  type: object
+                  additionalProperties: true
+            relationships:
+              type: object
+              required: [leaveType]
+              properties:
+                employee:
+                  type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ResourceIdentifier'
+                leaveType:
+                  type: object
+                  required: [data]
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ResourceIdentifier'
+
+    ApprovalDecisionBody:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [approvals]
+            attributes:
+              type: object
+              properties:
+                comment:
+                  type: string
+
+    ApprovalAttributes:
+      type: object
+      properties:
+        approvalLevel:
+          type: integer
+        decision:
+          type: string
+        comment:
+          type: string
+        decidedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    ApprovalResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [approvals]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/ApprovalAttributes'
+        relationships:
+          type: object
+          properties:
+            leaveRequest:
+              $ref: '#/components/schemas/RelationshipData'
+            approver:
+              $ref: '#/components/schemas/RelationshipData'
+
+    ApprovalCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    LeaveBalanceAttributes:
+      type: object
+      properties:
+        dimensions:
+          type: object
+          additionalProperties: true
+        currentBalance:
+          type: number
+          description: HCM authoritative balance
+        ledgerBalance:
+          type: number
+        pendingBalance:
+          type: number
+        availableBalance:
+          type: number
+        unit:
+          type: string
+          enum: [days, hours]
+        lastSyncedAt:
+          type: string
+          format: date-time
+
+    LeaveBalanceResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [leave-balances]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/LeaveBalanceAttributes'
+        relationships:
+          type: object
+          properties:
+            employee:
+              $ref: '#/components/schemas/RelationshipData'
+            leaveType:
+              $ref: '#/components/schemas/RelationshipData'
+
+    LeaveBalanceCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveBalanceResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    LedgerEntryAttributes:
+      type: object
+      properties:
+        dimensions:
+          type: object
+          additionalProperties: true
+        entryType:
+          type: string
+        amount:
+          type: number
+        source:
+          type: string
+        leaveRequestId:
+          type: string
+          format: uuid
+        syncRunId:
+          type: string
+          format: uuid
+        effectiveAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    LedgerEntryResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [leave-balance-ledger-entries]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/LedgerEntryAttributes'
+        relationships:
+          type: object
+          properties:
+            employee:
+              $ref: '#/components/schemas/RelationshipData'
+            leaveType:
+              $ref: '#/components/schemas/RelationshipData'
+
+    LedgerCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntryResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    SyncRunAttributes:
+      type: object
+      properties:
+        syncRunId:
+          type: string
+          format: uuid
+        employeeCount:
+          type: integer
+        balanceCount:
+          type: integer
+        adjustmentCount:
+          type: integer
+        status:
+          type: string
+          enum: [SUCCESS, PARTIAL, FAILED]
+
+    SyncRunResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [sync-runs]
+        id:
+          type: string
+          format: uuid
+        attributes:
+          $ref: '#/components/schemas/SyncRunAttributes'
+
+    SyncRunDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          $ref: '#/components/schemas/SyncRunResource'
+        meta:
+          type: object
+          properties:
+            correlationId:
+              type: string
+
+    SyncStatusAttributes:
+      type: object
+      properties:
+        syncSource:
+          type: string
+        lastSyncStartedAt:
+          type: string
+          format: date-time
+        lastSyncCompletedAt:
+          type: string
+          format: date-time
+        lastSyncStatus:
+          type: string
+        employeeCount:
+          type: integer
+        balanceCount:
+          type: integer
+        stalenessSeconds:
+          type: integer
+
+    SyncStatusResource:
+      type: object
+      required: [type, id, attributes]
+      properties:
+        type:
+          type: string
+          enum: [sync-status]
+        id:
+          type: string
+          example: current
+        attributes:
+          $ref: '#/components/schemas/SyncStatusAttributes'
+
+    SyncStatusDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          $ref: '#/components/schemas/SyncStatusResource'

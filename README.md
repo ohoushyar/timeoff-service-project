@@ -43,6 +43,7 @@ npm run dev
 ```
 
 The API listens on **http://localhost:3000** (see `PORT` in `.env`).  
+Interactive API docs: **http://localhost:3000/docs** (OpenAPI 3.0; raw spec at `/docs/json`).  
 The Workday mock listens on **http://127.0.0.1:4001**.
 
 ---
@@ -194,5 +195,6 @@ Phase 1 targets local development with SQLite and the Workday mock. For producti
 ## Documentation
 
 - [Implementation spec](docs/spec.md) — API, data model, business rules
+- [OpenAPI spec](docs/openapi.yaml) — implemented endpoints (Swagger UI at `/docs`)
 - [TRD](docs/trd.md) — product requirements
 - [Workday OAS](docs/hcm/workday/absenceManagement_v5_20260530_oas2.json) — Absence Management v5 reference

@@ -58,4 +58,16 @@ describe('app bootstrap', () => {
     await app.close();
     await teardownTestDb(prisma);
   });
+
+  it('serves OpenAPI JSON at /docs/json', async () => {
+    const prisma = await setupTestDb();
+    const app = await buildTestApp({ DATABASE_URL: getTestDatabaseUrl() }, prisma);
+    const res = await app.inject({ method: 'GET', url: '/docs/json' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.openapi).toBe('3.0.3');
+    expect(body.paths['/health/live']).toBeDefined();
+    await app.close();
+    await teardownTestDb(prisma);
+  });
 });

@@ -4,6 +4,7 @@ import prismaPlugin from './plugins/prisma.js';
 import jwtPlugin from './plugins/jwt.js';
 import jsonApiPlugin from './plugins/jsonapi.js';
 import correlationIdPlugin from './plugins/correlation-id.js';
+import openapiPlugin from './plugins/openapi.js';
 import { healthRoutes } from './routes/v1/health.js';
 import { employeeRoutes } from './routes/v1/employees.js';
 import { syncRoutes } from './routes/v1/sync.js';
@@ -36,6 +37,7 @@ export async function buildApp(options: BuildAppOptions) {
   app.decorate('config', options.env);
 
   await app.register(correlationIdPlugin);
+  await app.register(openapiPlugin);
   await app.register(prismaPlugin, { client: options.prisma });
   await app.register(jwtPlugin, { env: options.env });
   await app.register(jsonApiPlugin);
