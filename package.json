@@ -11,6 +11,8 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:coverage": "vitest run --coverage tests/unit",
+    "test:integration:coverage": "vitest run --coverage tests/integration",
+    "test:coverage:all": "vitest run --coverage",
     "test:watch": "vitest tests/unit",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
