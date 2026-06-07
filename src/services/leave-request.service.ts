@@ -225,6 +225,7 @@ export async function listLeaveRequests(
   prisma: PrismaClient,
   filters: {
     employeeId?: string;
+    employeeIds?: string[];
     status?: string;
     page: number;
     pageSize: number;
@@ -232,6 +233,7 @@ export async function listLeaveRequests(
 ) {
   const where: Record<string, unknown> = {};
   if (filters.employeeId) where.employeeId = filters.employeeId;
+  if (filters.employeeIds?.length) where.employeeId = { in: filters.employeeIds };
   if (filters.status) where.status = filters.status.toUpperCase();
 
   const [items, totalCount] = await Promise.all([
@@ -250,6 +252,96 @@ export async function getLeaveRequest(prisma: PrismaClient, id: string) {
   const request = await prisma.leaveRequest.findUnique({ where: { id } });
   if (!request) throw new AppError('NOT_FOUND');
   return request;
+}
+
+export interface UpdateLeaveRequestInput {
+  startDate?: Date;
+  endDate?: Date;
+  partialDayType?: PartialDayType;
+  partialDayHours?: number;
+  dimensions?: Record<string, unknown>;
+  reason?: string;
+}
+
+export async function updateLeaveRequest(
+  prisma: PrismaClient,
+  id: string,
+  input: UpdateLeaveRequestInput,
+  actor: { id?: string; role?: string; correlationId?: string },
+) {
+  const existing = await getLeaveRequest(prisma, id);
+  if (existing.status !== 'DRAFT') {
+    throw new AppError('INVALID_WORKFLOW_TRANSITION');
+  }
+
+  const startDate = input.startDate ?? existing.startDate;
+  const endDate = input.endDate ?? existing.endDate;
+  const partialDayType = input.partialDayType ?? existing.partialDayType;
+  const partialDayHours = input.partialDayHours ?? existing.partialDayHours;
+  const dimensions = input.dimensions ?? (existing.dimensions as Record<string, unknown>);
+  const reason = input.reason !== undefined ? input.reason : existing.reason;
+
+  const leaveType = await prisma.leaveType.findUnique({ where: { id: existing.leaveTypeId } });
+  if (!leaveType) throw new AppError('LEAVE_TYPE_NOT_FOUND');
+
+  const hash = dimensionsHash(dimensions);
+  const balanceRow = await prisma.leaveBalance.findUnique({
+    where: {
+      employeeId_leaveTypeId_dimensionsHash: {
+        employeeId: existing.employeeId,
+        leaveTypeId: existing.leaveTypeId,
+        dimensionsHash: hash,
+      },
+    },
+  });
+  if (!balanceRow) throw new AppError('INVALID_TIME_OFF_DIMENSIONS');
+
+  const holidays = await prisma.holiday.findMany({ where: { isActive: true } });
+  const location = dimensions.locationId as string | undefined;
+  const durationDays = computeDurationDays(
+    startDate,
+    endDate,
+    partialDayType,
+    partialDayHours,
+    holidays,
+    location,
+  );
+
+  const overlapping = await prisma.leaveRequest.findFirst({
+    where: {
+      id: { not: id },
+      employeeId: existing.employeeId,
+      status: { in: ['PENDING', 'APPROVED', 'APPROVED_PENDING_HCM_UPDATE'] },
+      startDate: { lte: endDate },
+      endDate: { gte: startDate },
+    },
+  });
+  if (overlapping) throw new AppError('OVERLAPPING_REQUEST');
+
+  const updated = await prisma.leaveRequest.update({
+    where: { id },
+    data: {
+      startDate,
+      endDate,
+      partialDayType,
+      partialDayHours,
+      dimensions: toJsonValue(dimensions),
+      reason,
+      durationDays,
+    },
+  });
+
+  await writeAudit(prisma, {
+    action: 'LEAVE_REQUEST_UPDATED',
+    actorId: actor.id,
+    actorRole: actor.role,
+    resourceType: 'leave-requests',
+    resourceId: id,
+    correlationId: actor.correlationId,
+    after: { status: updated.status, durationDays: durationDays.toNumber() },
+  });
+
+  return updated;
 }
 
 export { datesOverlap };

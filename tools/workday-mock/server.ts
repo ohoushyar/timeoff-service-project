@@ -7,10 +7,21 @@ export interface MockScenario {
 }
 
 const scenario: MockScenario = {};
+let requestTimeOffCallCount = 0;
 
 export function setMockScenario(s: MockScenario): void {
   scenario.simulateUnavailable = s.simulateUnavailable ?? false;
   scenario.simulateInsufficientBalance = s.simulateInsufficientBalance ?? false;
+}
+
+export function resetMockMetrics(): void {
+  requestTimeOffCallCount = 0;
+  scenario.simulateUnavailable = false;
+  scenario.simulateInsufficientBalance = false;
+}
+
+export function getRequestTimeOffCallCount(): number {
+  return requestTimeOffCallCount;
 }
 
 export function buildWorkdayMockApp() {
@@ -47,6 +58,7 @@ export function buildWorkdayMockApp() {
   });
 
   app.post('/absenceManagement/v5/workers/:id/requestTimeOff', async (request, reply) => {
+    requestTimeOffCallCount++;
     if (scenario.simulateUnavailable) return reply503(reply);
     if (scenario.simulateInsufficientBalance) {
       return reply.status(422).send({

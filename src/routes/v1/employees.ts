@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { requireSelfOrPrivileged } from '../../auth/guards.js';
+import { requireSelfOrPrivileged, requireManagerOfOrPrivileged, isPrivileged } from '../../auth/guards.js';
 import { getEmployee } from '../../services/employee.service.js';
 import { serializeEmployee } from '../../serializers/jsonapi/resources/employees.js';
 import { JSON_API_CONTENT_TYPE } from '../../plugins/jsonapi.js';
@@ -11,7 +11,11 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [app.authenticate] },
     async (request, reply) => {
       const id = paramId(request);
-      await requireSelfOrPrivileged(request, reply, id);
+      if (isPrivileged(request)) {
+        await requireSelfOrPrivileged(request, reply, id);
+      } else {
+        await requireManagerOfOrPrivileged(request, reply, id);
+      }
       const employee = await getEmployee(app.prisma, id);
       return reply.type(JSON_API_CONTENT_TYPE).send(serializeEmployee(employee));
     },

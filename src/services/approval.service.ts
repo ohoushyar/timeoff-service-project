@@ -63,7 +63,13 @@ export async function approveLeaveRequest(
     },
   });
 
-  if (!approval) throw new AppError('APPROVAL_NOT_PENDING');
+  if (!approval) {
+    const inChain = await prisma.approval.findFirst({
+      where: { leaveRequestId, approverEmployeeId },
+    });
+    if (!inChain) throw new AppError('FORBIDDEN');
+    throw new AppError('APPROVAL_NOT_PENDING');
+  }
 
   const request = approval.leaveRequest;
   if (request.status !== 'PENDING') {
@@ -195,7 +201,13 @@ export async function rejectLeaveRequest(
     where: { leaveRequestId, approverEmployeeId, decision: 'PENDING' },
     include: { leaveRequest: true },
   });
-  if (!approval) throw new AppError('APPROVAL_NOT_PENDING');
+  if (!approval) {
+    const inChain = await prisma.approval.findFirst({
+      where: { leaveRequestId, approverEmployeeId },
+    });
+    if (!inChain) throw new AppError('FORBIDDEN');
+    throw new AppError('APPROVAL_NOT_PENDING');
+  }
 
   await prisma.approval.update({
     where: { id: approval.id },
