@@ -1,7 +1,7 @@
 # Time Off Management Microservice — Implementation Specification
 
 **Product owner:** MyCompany  
-**Version:** 1.6  
+**Version:** 1.7  
 **Status:** Draft  
 **Source:** Derived from [trd.md](./trd.md) (TRD v2)  
 **Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
@@ -1234,6 +1234,31 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 - Local single-step manager approval; `approved_pending_hcm_update` + hourly HCM approval retry job
 - Health endpoints, audit logging (no email in audit payloads)
 
+**Phase 1 endpoints:** `GET /health/live`, `GET /health/ready`, `GET /api/v1/employees/{id}`, `POST /api/v1/sync/time-off`, `GET /api/v1/sync/status`, `GET /api/v1/leave-types`, `GET /api/v1/policies`, `POST|GET|PATCH /api/v1/leave-requests`, `POST /api/v1/leave-requests/{id}/cancel`, `GET /api/v1/approvals/pending`, `POST /api/v1/leave-requests/{id}/approve`, `POST /api/v1/leave-requests/{id}/reject`, `GET /api/v1/employees/{id}/balances`, `GET /api/v1/employees/{id}/balance-ledger`.
+
+**Phase 1 integration tests** (`tests/integration/` — one file or suite per resource group; every Phase 1 endpoint must have at least one happy-path and one auth/validation test):
+
+| # | Endpoint | Test cases |
+|---|---|---|
+| IT-1.1 | `GET /health/live` | 200 without auth; process-alive payload |
+| IT-1.2 | `GET /health/ready` | 200 when DB reachable; 503 when DB unavailable |
+| IT-1.3 | `GET /api/v1/employees/{id}` | 200 for self; 200 for manager viewing report; 403 for unrelated employee; 404 when mapping missing; JSON:API `employees` type; response has no name/phone/hire-date attributes |
+| IT-1.4 | `POST /api/v1/sync/time-off` | 200/202 for `system_admin` and `integration_client`; 403 for `employee`/`manager`; upserts employee snapshot, leave types, balances; creates sync metadata; safe to retry (idempotent) |
+| IT-1.5 | `GET /api/v1/sync/status` | 200 for `hr_admin+`; 403 for `employee`; returns staleness, last-run status, counts |
+| IT-1.6 | `GET /api/v1/leave-types` | 401 without JWT; 200 authenticated; JSON:API collection with pagination `meta`/`links` |
+| IT-1.7 | `GET /api/v1/policies` | 200 for `hr_admin+`; 403 for `employee`; returns synced policy resources |
+| IT-1.8 | `POST /api/v1/leave-requests` | 201 draft (`submit: false`); 201 submit → `PENDING` + `PENDING_RESERVATION` ledger; 422 insufficient balance / overlap / invalid dimensions; **no** `requestTimeOff` call on submit; 403 when creating for another employee without HR role |
+| IT-1.9 | `GET /api/v1/leave-requests` | 200 scoped list for employee (own only); manager sees team; `filter[status]`, `filter[employeeId]` work; pagination |
+| IT-1.10 | `GET /api/v1/leave-requests/{id}` | 200 owner/manager/hr; 403 unrelated employee; 404 unknown id |
+| IT-1.11 | `PATCH /api/v1/leave-requests/{id}` | 200 update draft fields; 422 patch non-draft; 403 non-owner without HR |
+| IT-1.12 | `POST /api/v1/leave-requests/{id}/cancel` | 200 cancel `PENDING` → `CANCELLED` + `RESERVATION_RELEASE`; no HCM call for pending cancel |
+| IT-1.13 | `GET /api/v1/approvals/pending` | 200 manager sees assigned pending step; empty collection when none; 403 employee |
+| IT-1.14 | `POST /api/v1/leave-requests/{id}/approve` | 200 assigned approver → `APPROVED` + `requestTimeOff` + `CONFIRMED_USAGE` + `hcmReferenceId`; 200 with HCM down → `APPROVED_PENDING_HCM_UPDATE`; 403 non-approver; 422 already terminal |
+| IT-1.15 | `POST /api/v1/leave-requests/{id}/reject` | 200 assigned approver → `REJECTED` + `RESERVATION_RELEASE`; no HCM write; 403 non-approver |
+| IT-1.16 | `GET /api/v1/employees/{id}/balances` | 200 self/manager/hr; attributes `currentBalance`, `ledgerBalance`, `pendingBalance`, `availableBalance`, `lastSyncedAt`, `unit`; 403 unrelated employee |
+| IT-1.17 | `GET /api/v1/employees/{id}/balance-ledger` | 200 paginated workflow entries (`entryType`, `source`, `amount`); includes reservation/usage rows after workflow; 403 unrelated employee |
+| IT-1.18 | Cross-cutting | All protected routes return 401 without JWT and JSON:API `errors`; audit records exclude email; hourly retry job promotes `APPROVED_PENDING_HCM_UPDATE` → `APPROVED` (job test with mocked clock) |
+
 ### Phase 2 — Workflow Depth
 - Multi-step and HR approval; auto-approval from synced policies
 - Workday preflight reads at approve; `correctTimeOffEntry` cancel-of-approved path
@@ -1241,11 +1266,42 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 - Idempotency keys; sync-runs API
 - Reports: balances, usage, pending approvals, sync health
 
+**Phase 2 endpoints (new):** `GET /api/v1/sync-runs`, `GET /api/v1/sync-runs/{id}`, `GET /api/v1/reports/leave-usage`, `GET /api/v1/reports/team-calendar`, `GET /api/v1/reports/audit`; plus `Idempotency-Key` header on supported Phase 1 POST mutations.
+
+**Phase 2 integration tests:**
+
+| # | Endpoint / behavior | Test cases |
+|---|---|---|
+| IT-2.1 | `GET /api/v1/sync-runs` | 200 `hr_admin+` paginated history; 403 employee; `meta.totalCount`; ordered by `startedAt` desc |
+| IT-2.2 | `GET /api/v1/sync-runs/{id}` | 200 with adjustment counts and correlation id; 404 unknown run |
+| IT-2.3 | `GET /api/v1/reports/leave-usage` | 200 manager/hr with date filters; `meta.summary` aggregates; 403 employee |
+| IT-2.4 | `GET /api/v1/reports/team-calendar` | 200 manager team view; respects reporting chain; date-range filter |
+| IT-2.5 | `GET /api/v1/reports/audit` | 200 `hr_admin+`; export shape; no email in rows; 403 manager |
+| IT-2.6 | `Idempotency-Key` on `POST /api/v1/leave-requests` | Same key + body returns cached 201; different body with same key → 409 |
+| IT-2.7 | `Idempotency-Key` on approve/reject/sync | Replay returns identical response; no duplicate ledger/HCM side effects |
+| IT-2.8 | Multi-step approval | Level 2 not actionable until level 1 approved; HR step from policy; auto-approve skips pending approvals |
+| IT-2.9 | `POST .../approve` with preflight | Calls `eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED` |
+| IT-2.10 | `POST .../cancel` (approved) | Calls `correctTimeOffEntry` with `delete=true`; `USAGE_REVERSAL` ledger entry |
+| IT-2.11 | `APPROVED_PENDING_HCM_UPDATE` exhaustion | After 24h retries → auto-`REJECTED` + `HCM_APPROVAL_SYNC_FAILED` notification record |
+| IT-2.12 | Notifications | `REQUEST_SUBMITTED`, `REQUEST_APPROVED`, `REQUEST_REJECTED`, `APPROVAL_OVERDUE` records created with snapshot email in payload (not in audit) |
+
 ### Phase 3 — Operations
 - Optional webhook early master-data reconciliation (must not drive approval workflow)
 - Metrics export; team calendar report
 - PostgreSQL migration guide
 - Complementary Workday services for employee snapshot fields (tenant-specific)
+
+**Phase 3 endpoints (new):** `POST /api/v1/integrations/hcm/webhook` (optional).
+
+**Phase 3 integration tests:**
+
+| # | Endpoint / behavior | Test cases |
+|---|---|---|
+| IT-3.1 | `POST /api/v1/integrations/hcm/webhook` | 202 for valid `integration_client` signature; 401/403 invalid auth; persists `integration_events`; async master-data refresh only (no approval state mutation) |
+| IT-3.2 | Webhook idempotency | Duplicate delivery id does not double-apply sync |
+| IT-3.3 | Metrics export | `/metrics` (or configured path) exposes counters from §11.2 when enabled |
+| IT-3.4 | Stale sync visibility | Balance and sync-status responses surface `lastSyncedAt` / staleness when nightly sync aged |
+| IT-3.5 | HCM outage runbook paths | Manual `POST /api/v1/sync/time-off` recovery after outage; sync status reflects failure then success |
 
 ---
 
@@ -1262,6 +1318,8 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 - JSON:API serializers
 
 ### 14.2 Integration Tests
+
+Endpoint coverage is defined per implementation phase in **§13** (IT-1.x through IT-3.x). The scenarios below are cross-phase workflow tests that span multiple endpoints; each must be implemented in addition to the per-endpoint Phase 1 matrix.
 - Submit happy path: validate → local `PENDING` + pending ledger entry → no `requestTimeOff` call
 - Submit with HCM balance read failure: falls back to local working copy + ledger and still creates pending workflow
 - Approve happy path: local approve → `requestTimeOff` → `APPROVED` + `CONFIRMED_USAGE`
@@ -1329,3 +1387,4 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | 1.4 | 2026-06-06 | Clarified MyCompany as product owner; operational behavior attributed to the microservice |
 | 1.5 | 2026-06-06 | Aligned with TRD v2: minimal employee snapshot, nightly Workday batch sync, local balance ledger, submit-on-request Workday flow, local approve/reconcile, no HCM ledger import |
 | 1.6 | 2026-06-06 | Aligned with TRD v2 workflow model: local submit without HCM write; HCM post at approve; `approved_pending_hcm_update` hourly retry; microservice-only approval workflow; no HCM approval sync in nightly batch |
+| 1.7 | 2026-06-06 | Per-phase integration test matrices (IT-1.x–IT-3.x) covering all endpoints introduced in each phase |
