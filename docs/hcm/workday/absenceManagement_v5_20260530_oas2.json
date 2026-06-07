@@ -1,0 +1,3391 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "description": "The Absence Management service enables:\n\n* Accessing worker information about leaves of absence and time off details.\n* Requesting time off and leaves of absence.",
+    "version": "v5",
+    "title": "absenceManagement",
+    "x-workday-confidence-level": "Production",
+    "x-workday-internal-source": "xo",
+    "x-workday-internal-routing": "Public",
+    "x-workday-internal-protected-usage-enabled": false,
+    "x-workday-internal-service-container-id": "f7b74eb21dea10001af392117b2b03c8"
+  },
+  "host": "<tenantHostname>",
+  "basePath": "/absenceManagement/v5",
+  "tags": [
+    {
+      "name": "balances",
+      "description": "Provides the ability to get absence plan and leave of absence balances."
+    },
+    {
+      "name": "workers",
+      "description": "Retrieves absence management information about workers and allows the requesting of time off.\n\nThis endpoint and its subresources can be referenced with either an ID or the \"me\" named entry.\n* Referencing a specific worker: /workers/{ID}/...\n* Referencing the current user using the named entry: /workers/me/..."
+    },
+    {
+      "name": "Prompt Values",
+      "description": "Retrieves instances that can be used as values for other endpoint parameters in this service."
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "paths": {
+    "/workers/{ID}/leavesOfAbsence/{subresourceID}": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves the leave of absence for the specified worker.",
+        "description": "Retrieves information about the leave of absence for the worker with the specified ID.\n\n<b>Secured by:</b> Self-Service: Leave of Absence, Worker Data: Leave of Absence\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "subresourceID",
+            "in": "path",
+            "description": "The Workday ID of the subresource.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/leavesOfAbsenceView_43bb5714be2d10001634f7c14f620000"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-confidence-level": "Production",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "43bb5714be2d1000161baf69e56f0000"
+      }
+    },
+    "/values/leave/status/": {
+      "get": {
+        "tags": [
+          "Prompt Values"
+        ],
+        "description": "The status of the event that tracks the requested time off.\n\n<b>Secured by:</b> Self-Service: Leave of Absence, Worker Data: Leave of Absence\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/MULTIPLE_INSTANCE_MODEL_REFERENCE"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-protected-usage-enabled": false,
+        "x-workday-internal-try-enabled": "true"
+      },
+      "parameters": [
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "The maximum number of objects in a single response. The default and maximum is 1000.",
+          "required": false,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "name": "offset",
+          "in": "query",
+          "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+          "required": false,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "description": "A search string that matches display IDs. The search is case-insensitive and matches words that start with the given string.",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "/workers/{ID}/correctTimeOffEntry": {
+      "post": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Creates a time off correction for the specified worker ID and initiates the business process.",
+        "description": "Creates a time off correction for the specified worker ID and initiates the Correct Time Off business process. \n \nIn the request body, if using business process parameters, specify at least the required field: action {id}. You must specify the submit action WID: d9e4223e446c11de98360015c5e6daf6\n\n<b>Secured by:</b> Correct Time Off Entry (REST Service)\n\n<b>Scope:</b> Time Off and Leave\n\nContains attachment(s)",
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "in": "body",
+            "name": "jsonData",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/correctTimeOffEventView_db70b83ce44510000e82df4b23b10014"
+            },
+            "x-workday-multipart-root-part-name": "jsonData"
+          },
+          {
+            "name": "wd-warning-action",
+            "in": "header",
+            "description": "Optional header wd-warning-action: When set to updateonwarning, the client accepts persisting data when only warning-level validations are present. Validations occur before any persistence. If the header is passed and only warnings are present, the client can proceed to persist; the success response (200/201) then includes an **errors** array with those warning validations (the warnings are not persisted) and the created/updated resource. Critical validations still block.",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "updateonwarning"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created.\n\n**Two possible success responses:**\n1. **No warning validations:** Standard success response (resource only).\n2. **With warning validations:** When the client sends **wd-warning-action: updateonwarning**, validations run before any persistence. If only warning-level validations are present, the client can choose to proceed; data is then persisted and the success response includes an **errors** array with those warning validations (the warnings are not persisted). Critical validations still block. (PUT, PATCH, POST only.)",
+            "schema": {
+              "$ref": "#/definitions/correctTimeOffEventView_db70b83ce44510000e82df4b23b10014"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)\n| Severity | Error Code | Validation Message |\n --- | --- | --- |\n| Critical | A165 | The attachment category is invalid for this business process. |\n| Critical | A175 | The file is required. |\n| Critical | A178 | The business process has already been initiated. |\n| Critical | A200 | You can't comment on this business process type. |\n| Critical | A205 | You don't have the security permission on this business process to add attachments. |\n| Critical | A206 | Attachments are not enabled for this business process. |\n| Critical | A207 | You've exceeded the attachment file size limit of [tenant setup attachment limit]KB. |\n| Critical | A211 | The attachment category is required. |\n| Critical | A219 | The business process action isn't valid. |\n| Critical | A221 | The attachment category isn't enabled for this business process. |\n| Critical | A228 | [customer event validation message] |\n| Warning | A228 | [customer event warning validation message] |\n| Warning | A1006 | [correct absence REST API max unpaid warning time off error message] |\n| Warning | A1007 | [absence REST API consecutive day minimum warning time off error message] |\n| Critical | A1008 | Some of the start and end times you're trying to submit overlap with start and end times for an existing time off request on the same date(s). Edit your start and end times so that they don't overlap. |\n| Critical | A1010 | All time off entries must belong to the same Worker. |\n| Critical | A1011 | You don't have a sufficient balance or aren't eligible to satisfy the request for [type] as of [date]. |\n| Critical | A1012 | Requires End Time |\n| Warning | A1014 | [correct absence REST API min warning time off error message] |\n| Critical | A1015 | [correct absence REST API max unpaid critical time off error message] |\n| Critical | A1016 | Enter an hourly or daily quantity that is greater than zero. |\n| Critical | A1017 | Daily Quantity is required and must have a value. |\n| Critical | A1018 | [absence Correct TO REST API increment critical time off error message] |\n| Critical | A1020 | The correction can't have a Total Hourly or Daily Quantity of zero. To delete an approved entry, set the delete attribute to True. |\n| Critical | A1021 | [REST Validation Message - Time Off Reason Not Valid for Time Off] |\n| Critical | A1022 | [correct absence REST API max critical time off error message] |\n| Warning | A1023 | [absence Correct TO REST API increment warning time off error message] |\n| Critical | A1025 | [absence REST API consecutive day minimum critical time off error message] |\n| Critical | A1028 | Some of the start and end times you're trying to submit overlap with existing time blocks. Edit your start and end times so that they don't overlap. |\n| Critical | A1029 | Enter an End Time that is after the Start Time. |\n| Critical | A1034 | Requires Start Time |\n| Critical | A1035 | Ensure that all of the time off entries that you correct come from the same time off request event. |\n| Critical | A1036 | [REST Validation Message - Time Off Reason Required But Not Provided] |\n| Warning | A1040 | [correct absence REST API max warning time off error message] |\n| Critical | A1043 | [REST Validation Message - Time Off Reason Not Enabled for Time Off] |\n| Critical | A1045 | [correct absence REST API min critical time off error message] |\n| Critical | A1046 | Start Time and End Time are optional for [Correct Time Off Type]. Enter both values or neither. |\n| Critical | A1047 | The dates for the Start and End fields must match the Date field: [correct date]. |\n| Critical | A1049 | Ensure that all time off entries that you correct are approved and that there are no pending corrections. |\n| Critical | A1051 | The time off request for [dates] has already been canceled. |\n| Critical | A2685 | Specify a start and end date range that’s less than 24 hours. |\n| Critical | A2687 | The date for the Start field must match the Date field: [correct date]. |\n| Critical | A3157 | You can't update a time off entry that uses an inactive worktag. |\n| Critical | A3287 | No changes detected. To correct the time off request, update at least 1 field. |\n| Critical | A3291 | You must have the delegation permission to initiate this event. Ensure that you have all the required permissions and configuration for this action. |\n| Critical | A3316 | The Time Off Entry you are trying to adjust has already been corrected. Please use the corrected entry to make further adjustments. |\n| Critical | - | To submit multiple Corrected Entry fields in the same correction request, ensure that each Corrected Entry field has a unique ID. |",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-multipart-root-part-name": "jsonData",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "5e771cd632ee1000080ad54148e2157f"
+      }
+    },
+    "/balances/{ID}": {
+      "get": {
+        "tags": [
+          "balances"
+        ],
+        "summary": "Retrieves the specified balance of all absence plan and leave of absence types.",
+        "description": "Retrieves the specified balance of all absence plan and leave of absence types for the specified balance ID. You can use a returned id from GET /balances.\n\n<b>Secured by:</b> Self-Service: Leave of Absence Entitlements, Self-Service: Time Off Balances, Worker Data: Leave of Absence, Worker Data: Time Off (Time Off Balances Manager View), Worker Data: Time Off (Time Off Balances)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/absenceBalanceView_842800d7bb021000741e5d56eac70162"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "842800d7bb0210006a09e472785f010b"
+      }
+    },
+    "/values/timeOff/status/": {
+      "get": {
+        "tags": [
+          "Prompt Values"
+        ],
+        "description": "The possible statuses for a worker's time off entry request event. They include:\n* Approved, 0391102bd1b542538d996936c8fa2fa7\n* Not Submitted, eddf5968e6d4430ca4bce9a4cfaba337\n* Sent Back, 070b249867f747a19bca64f73eafc9b8\n* Submitted, dd817fe688db4ac7bf84e3ef79f72948\n\n<b>Secured by:</b> Self-Service: Time Off, Worker Data: Time Off (Time Off Manager View), Worker Data: Time Off (Time Off)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/MULTIPLE_INSTANCE_MODEL_REFERENCE"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-protected-usage-enabled": false,
+        "x-workday-internal-try-enabled": "true"
+      },
+      "parameters": [
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "The maximum number of objects in a single response. The default and maximum is 1000.",
+          "required": false,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "name": "offset",
+          "in": "query",
+          "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+          "required": false,
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "description": "A search string that matches display IDs. The search is case-insensitive and matches words that start with the given string.",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    },
+    "/workers/{ID}/eligibleAbsenceTypes": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves a collection of eligible absence types for the specified worker.",
+        "description": "Retrieves all the eligible absence types for the specified worker ID for a category type. If you don't specify a query parameter, this will get all time off types, absence tables, and leave types a worker is eligible for.\n\nSpecify the category to filter the result based on absence type.\n\n<b>Secured by:</b> FLW Service, Request Leave for Self+TG+TG-TG, Request Leave of Absence (REST Service), Request Time Off (REST Service), Request \\~Time Off\\~ for Self+TG+TG-TG\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "description": "The Workday ID of the absence type category. Valid values:\n* Leave of Absence Type: 17bd6531c90c100016d74f8dfae007d0 \n\n* Absence Table: 17bd6531c90c100016da3f5b554007d2\n\n* Time Off: 17bd6531c90c100016d4b06f2b8a07ce",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "effective",
+            "in": "query",
+            "description": "The effective date for which eligible absence types need to be returned for the worker.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/eligibleAbsenceTypeView_4100eb9364bf100005260cb771840174"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "dcdafc12f16d10001bf33f405ed90000"
+      }
+    },
+    "/workers/{ID}/leavesOfAbsence": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves the Leaves Of Absence for a specified worker ID.",
+        "description": "Retrieves Leaves Of Absence for a specified worker ID for a date range, status, and type. If you don't specify query parameters, this method returns all Leaves Of Absence.\n\nIf you specify a date range, this method returns Leaves Of Absence events based on First Day Of Leave, Estimated Last Day Of Leave, and Actual Last Day Of Leave. The Actual Last Day Of Leave is used only if the Request Return from Leave business process is completed, else the Actual Last Day Of Leave is assumed to be blank. In particular, this method:\n\n* Returns an event if the Actual Last Day Of Leave is blank and the Estimated Last Day Of Leave is in the past but before the fromDate or toDate parameters.\n\n* Does not return an event if the Actual Last Day Of Leave is blank and the Estimated Last Day Of Leave is in the future but before the fromDate or toDate parameters.\n\n<b>Secured by:</b> Self-Service: Leave of Absence, Worker Data: Leave of Absence\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "fromDate",
+            "in": "query",
+            "description": "The start of a date range filter using the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "leaveType",
+            "in": "query",
+            "description": "The Workday ID of the type of leave of absence. You can specify multiple leaveType query parameters.",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "The Workday ID of the status of the leave of absence. The valid statuses are Successfully Completed, In Progress, Canceled, Rescinded, and Process Terminated. To get valid values, call the GET /values/leave/status endpoint. You can specify multiple status query parameters.",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "toDate",
+            "in": "query",
+            "description": "The end of a date range filter using the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/leavesOfAbsenceView_43bb5714be2d10001634f7c14f620000"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-confidence-level": "Production",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "43bb5714be2d1000161baf69e56f0000"
+      }
+    },
+    "/workers/{ID}/requestTimeOff": {
+      "post": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Creates a time off request for the specified worker ID and initiates the business process.",
+        "description": "Use this to create a time off request for the specified worker ID and initiate the Request Time Off business process. \n\nRequesting time off is a multistep process. To do so, call these endpoints:\n1. GET /workers/{worker ID}/eligibleAbsenceTypes\n2. GET /workers/{worker ID}/validTimeOffDates?timeOff={Time Off Type ID from step 1}&date={first date requested off}&date={second date requested off}\n3. POST /workers/{worker ID}/requestTimeOff {...}\n\nIf you specify businessProcessParameters in the request body:\n* You must specify action.id.\n* To submit the event, specify action.id as Submitted, d9e4223e446c11de98360015c5e6daf6.\n\nExample:\n{\n    \"businessProcessParameters\": {\n        \"action\": {\n            \"id\": \"d9e4223e446c11de98360015c5e6daf6\"\n        }\n    },\n    \"days\": [ ... ]\n}\n\n<b>Secured by:</b> FLW Service, Request Time Off (REST Service)\n\n<b>Scope:</b> Time Off and Leave\n\nContains attachment(s)",
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "in": "body",
+            "name": "jsonData",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/timeOffRequestEventView_842800d7bb021000779558096f1a01d2"
+            },
+            "x-workday-multipart-root-part-name": "jsonData"
+          },
+          {
+            "name": "wd-warning-action",
+            "in": "header",
+            "description": "Optional header wd-warning-action: When set to updateonwarning, the client accepts persisting data when only warning-level validations are present. Validations occur before any persistence. If the header is passed and only warnings are present, the client can proceed to persist; the success response (200/201) then includes an **errors** array with those warning validations (the warnings are not persisted) and the created/updated resource. Critical validations still block.",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "updateonwarning"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created.\n\n**Two possible success responses:**\n1. **No warning validations:** Standard success response (resource only).\n2. **With warning validations:** When the client sends **wd-warning-action: updateonwarning**, validations run before any persistence. If only warning-level validations are present, the client can choose to proceed; data is then persisted and the success response includes an **errors** array with those warning validations (the warnings are not persisted). Critical validations still block. (PUT, PATCH, POST only.)",
+            "schema": {
+              "$ref": "#/definitions/timeOffRequestEventView_842800d7bb021000779558096f1a01d2"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)\n| Severity | Error Code | Validation Message |\n --- | --- | --- |\n| Critical | A165 | The attachment category is invalid for this business process. |\n| Critical | A175 | The file is required. |\n| Critical | A178 | The business process has already been initiated. |\n| Critical | A200 | You can't comment on this business process type. |\n| Critical | A205 | You don't have the security permission on this business process to add attachments. |\n| Critical | A206 | Attachments are not enabled for this business process. |\n| Critical | A207 | You've exceeded the attachment file size limit of [tenant setup attachment limit]KB. |\n| Critical | A211 | The attachment category is required. |\n| Critical | A219 | The business process action isn't valid. |\n| Critical | A221 | The attachment category isn't enabled for this business process. |\n| Critical | A228 | [customer event validation message] |\n| Warning | A228 | [customer event warning validation message] |\n| Warning | A1006 | [absence REST API max unpaid warning time off error message] |\n| Warning | A1007 | [absence REST API consecutive day minimum warning time off error message] |\n| Critical | A1008 | Some of the start and end times you're trying to submit overlap with start and end times for an existing time off request on the same date(s). Edit your start and end times so that they don't overlap. |\n| Critical | A1009 | Type is required and must have a value. |\n| Critical | A1011 | You don't have a sufficient balance or aren't eligible to satisfy the request for [type] as of [date]. |\n| Critical | A1012 | Requires End Time |\n| Warning | A1014 | [absence REST API min warning time off error message] |\n| Critical | A1015 | [absence REST API max unpaid critical time off error message] |\n| Critical | A1016 | Enter an hourly or daily quantity that is greater than zero. |\n| Critical | A1017 | Daily Quantity is required and must have a value. |\n| Critical | A1018 | [absence REST API increment critical time off error message] |\n| Warning | A1019 | [absence REST API multiple time offs warning time off error message] |\n| Critical | A1020 | The request can't have a Total Hourly or Daily Quantity of zero. |\n| Critical | A1021 | [REST Validation Message - Time Off Reason Not Valid for Time Off] |\n| Critical | A1022 | [absence REST API max critical time off error message] |\n| Warning | A1023 | [absence REST API increment warning time off error message] |\n| Critical | A1025 | [absence REST API consecutive day minimum critical time off error message] |\n| Critical | A1026 | [REST Validation Message - Position Not Eligible for Time Off Type] |\n| Critical | A1027 | [absence REST API consecutive day maximum critical time off error message] |\n| Critical | A1028 | Some of the start and end times you're trying to submit overlap with existing time blocks. Edit your start and end times so that they don't overlap. |\n| Critical | A1029 | Enter an End Time that is after the Start Time. |\n| Critical | A1030 | [REST Validation Message - Position Provided for Worker Based Time Off] |\n| Critical | A1033 | [REST Validation Message - Invalid Days Included] |\n| Critical | A1034 | Requires Start Time |\n| Critical | A1036 | [REST Validation Message - Time Off Reason Required But Not Provided] |\n| Warning | A1037 | [absence REST API beyond last override warning time off error message] |\n| Critical | A1038 | Date is required and must have a value. |\n| Warning | A1039 | [absence REST API consecutive day maximum warning time off error message] |\n| Warning | A1040 | [absence REST API max warning time off error message] |\n| Critical | A1041 | [REST Validation Message - Worker Not Eligible for Time Off Type] |\n| Critical | A1042 | [absence REST API multiple time offs critical time off error message] |\n| Critical | A1043 | [REST Validation Message - Time Off Reason Not Enabled for Time Off] |\n| Critical | A1044 | When the Time Off Type is an Absence Table, ensure that the Position field is blank. |\n| Critical | A1045 | [absence REST API min critical time off error message] |\n| Critical | A1046 | Start Time and End Time are optional for [Time Off Type]. Enter both values or neither. |\n| Critical | A1047 | The dates for the Start and End fields must match the Date field: [date]. |\n| Critical | A1048 | Your request includes days that aren't allowed for [Time Off Type]. To include the invalid days, provide a different Time Off Type. Otherwise, enter valid dates. |\n| Critical | A1050 | [REST Validation Message - Position Needed for Position Based/Required Time Off] |\n| Critical | A1052 | [absence REST API beyond last override critical time off error message] |\n| Critical | A1509 | [REST Validation Message - Time Off Type with Sell Time Off Checked] |\n| Critical | A1726 | [REST Validation Message - Position Needed for Position Based/Required Absence Type] |\n| Critical | A1727 | To request time off for a worker against a worker-based absence table, ensure that the Position field is blank. |\n| Critical | A1790 | [REST Validation Message - Position Not Eligible for Absence Type] |\n| Critical | A2658 | [REST Validation Message - Time Off Type with Forfeiture Adjustment Checked] |\n| Critical | A2663 | [REST Validation Message - Time Off Type with Worktag Configured] |\n| Critical | A2685 | Specify a start and end date range that’s less than 24 hours. |\n| Critical | A2687 | The date for the Start field must match the Date field: [date]. |\n| Critical | A3291 | You must have the delegation permission to initiate this event. Ensure that you have all the required permissions and configuration for this action. |",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-multipart-root-part-name": "jsonData",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "3c80ffc327bd10002256f972871a002a"
+      }
+    },
+    "/balances": {
+      "get": {
+        "tags": [
+          "balances"
+        ],
+        "summary": "Retrieves the balance of all absence plan and leave of absence type for the specified worker ID.",
+        "description": "Retrieves the balance of all absence plan and leave of absence type for the specified worker ID.\nYou can filter the balances by category, effective date, and worker.\nSpecify category to filter the result based on absence type.\n\nThere are 3 category types:\n\n* Leave of Absence Type, 17bd6531c90c100016d74f8dfae007d0 \n\n* Absence Table, 17bd6531c90c100016da3f5b554007d2\n\n* Time Off, 7bd6531c90c100016d4b06f2b8a07ce\n\n<b>Secured by:</b> Self-Service: Leave of Absence Entitlements, Self-Service: Time Off Balances, Worker Data: Leave of Absence, Worker Data: Time Off (Time Off Balances Manager View), Worker Data: Time Off (Time Off Balances)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "description": "The Workday ID of the time off, leave type, or absence table.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "effective",
+            "in": "query",
+            "description": "The absence balances as of the specified date using the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "worker",
+            "in": "query",
+            "description": "The Workday ID of the worker for which balances are returned. This is a required query parameter.",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/absenceBalanceView_842800d7bb021000741e5d56eac70162"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "842800d7bb0210006a09e472785f010b"
+      }
+    },
+    "/workers/{ID}": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves a collection of workers and current staffing information.",
+        "description": "Retrieves a collection of workers and current staffing information.\n\n<b>Secured by:</b> FLW Service, Self-Service: Current Staffing Information, Worker Data: Public Worker Reports\n\n<b>Scope:</b> Staffing",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/workerData_c2466b0778c610000d1936006720000e"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "c2466b0778c610000cdf9abc4fbc000c"
+      }
+    },
+    "/workers/{ID}/timeOffDetails/{subresourceID}": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves details of a specified time off entry for a specified worker.",
+        "description": "Retrieves details of the time off entry with the specified ID for the specified worker ID.\n\n<b>Secured by:</b> FLW Service, Self-Service: Time Off, Worker Data: Time Off (Time Off Manager View), Worker Data: Time Off (Time Off)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "subresourceID",
+            "in": "path",
+            "description": "The Workday ID of the subresource.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/timeOffDetailsView_8154239388f210001f7d7955e7350000"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-confidence-level": "Production",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "8154239388f210001f002a2d398b0000"
+      }
+    },
+    "/workers/{ID}/timeOffDetails": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves a collection of time off details for a specified worker.",
+        "description": "Retrieves the time off entries for the specified worker ID. You can filter by date range, status, and type. If you don't specify query parameters, this method returns all time off entries.\n\n<b>Secured by:</b> FLW Service, Self-Service: Time Off, Worker Data: Time Off (Time Off Manager View), Worker Data: Time Off (Time Off)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "fromDate",
+            "in": "query",
+            "description": "The start of a date range filter using the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "The Workday ID of the time off status. You can specify multiple status query parameters. This method returns the most recent instance of a time off entry based on this query parameter. \n\nThe valid statuses are Approved, Submitted, Not Submitted, and Sent Back. This method does not return Canceled and Denied Time Off Entries. To get the Workday ID of a status, call the GET /values/timeOff/status endpoint. You can specify multiple status query parameters.\n\nExample:\nAn approved Time Off Entry for Vacation 8 hours was corrected to Vacation 4 hours and is not in submitted status. If the query parameter is status = approved, the Time Off Entry of Vacation, 8 hours, Approved is returned. If query parameter status = submitted, the Time Off Entry of Vacation, 4 hours, Submitted is returned. If no query parameter is passed, the Time Off Entry of Vacation, 4 hours, Submitted is returned.",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "timeOffType",
+            "in": "query",
+            "description": "The Workday ID of the Time Off Type. You can specify multiple timeOffType query parameters.",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "toDate",
+            "in": "query",
+            "description": "The end of a date range filter using the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/timeOffDetailsView_8154239388f210001f7d7955e7350000"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-confidence-level": "Production",
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "8154239388f210001f002a2d398b0000"
+      }
+    },
+    "/workers/{ID}/validTimeOffDates": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves the valid time off dates for the specified worker ID for the given dates.",
+        "description": "Retrieves the valid time off dates for a specified worker ID for any given dates. You can specify position, timeOffType, and date in the query parameter. The date query parameter supports multiple dates.\n\n<b>Secured by:</b> Request Time Off (REST Service)\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "The dates being requested for which to validate. It should be in the yyyy-mm-dd format.",
+            "required": false,
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "description": "The Workday ID of the position.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "timeOff",
+            "in": "query",
+            "description": "The Workday ID of the time off.",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/dailyQuantityView_842800d7bb02100079a568e53e1001e2"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "false",
+        "x-workday-operation-id": "3c80ffc327bd100011f30d28271d001a"
+      }
+    },
+    "/workers": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves a collection of workers and current staffing information.",
+        "description": "Retrieves a collection of workers and current staffing information.\n\n<b>Secured by:</b> FLW Service, Self-Service: Current Staffing Information, Worker Data: Public Worker Reports\n\n<b>Scope:</b> Staffing",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "filterByOrgVisibility",
+            "in": "query",
+            "description": "Only return workers whose supervisory organizations are visible to the processing user.  This requires the 'Enable Restrictions on Worker Prompts Based on Supervisory Org Visibility Settings' setting to be enabled in Edit Tenant Setup - System.",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "includeTerminatedWorkers",
+            "in": "query",
+            "description": "Include terminated workers in the output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects in a single response. The default is 20. The maximum is 100.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "The zero-based index of the first object in a response collection. The default is 0. Use offset with the limit parameter to control paging of a response collection. Example: If limit is 5 and offset is 9, the response returns a collection of 5 objects starting with the 10th object.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Searches workers by name or worker ID. The search is case-insensitive. You can include space-delimited search strings for an OR search.",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/workerData_c2466b0778c610000d1936006720000e"
+                  }
+                },
+                "total": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "c2466b0778c610000cdf9abc4fbc000c"
+      }
+    },
+    "/workers/{ID}/eligibleAbsenceTypes/{subresourceID}": {
+      "get": {
+        "tags": [
+          "workers"
+        ],
+        "summary": "Retrieves the eligible absence type for the specified worker.",
+        "description": "Retrieves the eligible absence type with the subresource ID for the specified worker.\n\n<b>Secured by:</b> FLW Service, Request Leave for Self+TG+TG-TG, Request Leave of Absence (REST Service), Request Time Off (REST Service), Request \\~Time Off\\~ for Self+TG+TG-TG\n\n<b>Scope:</b> Time Off and Leave",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "ID",
+            "in": "path",
+            "description": "The Workday ID of the resource.\n\n- **ID:** Replace with your actual Workday ID\n- **me**",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "ID",
+              "me"
+            ]
+          },
+          {
+            "name": "subresourceID",
+            "in": "path",
+            "description": "The Workday ID of the subresource.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. A successful response can return no matched data.",
+            "schema": {
+              "$ref": "#/definitions/eligibleAbsenceTypeView_4100eb9364bf100005260cb771840174"
+            }
+          },
+          "400": {
+            "description": "Invalid request. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "401": {
+            "description": "Unauthorized: Missing or invalid credentials. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "403": {
+            "description": "User has insufficient permissions. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "404": {
+            "description": "Resource not found. (https://community.workday.com/rest/error-messages)",
+            "schema": {
+              "$ref": "#/definitions/VALIDATION_ERROR_MODEL_REFERENCE"
+            }
+          },
+          "default": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+            }
+          }
+        },
+        "x-workday-internal-try-enabled": "true",
+        "x-workday-operation-id": "dcdafc12f16d10001bf33f405ed90000"
+      }
+    }
+  },
+  "securityDefinitions": {
+    "OAuth2": {
+      "type": "oauth2",
+      "authorizationUrl": "https://<tenantAuthorizationHostname>",
+      "flow": "implicit"
+    }
+  },
+  "definitions": {
+    "INSTANCE_MODEL_REFERENCE": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Workday Id or Reference Id of the instance.",
+          "pattern": "^(([0-9a-f]{32})|(\\S+=\\S+))$"
+        },
+        "descriptor": {
+          "type": "string",
+          "description": "The display name of the instance",
+          "readOnly": true
+        },
+        "href": {
+          "type": "string",
+          "description": "A link to the instance",
+          "readOnly": true
+        }
+      }
+    },
+    "ERROR_MODEL_REFERENCE": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "A description of the error"
+        },
+        "code": {
+          "type": "string",
+          "description": "The code that corresponds to the error message. Use the error code to drive programmatic error-handling behavior. Don't use error message strings for this purpose because they are subject to change"
+        },
+        "field": {
+          "type": "string",
+          "description": "The field related to the error"
+        },
+        "path": {
+          "type": "string",
+          "description": "The path of the field related to the error"
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity of the validation (e.g. Critical, Warning)."
+        },
+        "internalMessage": {
+          "type": "string",
+          "description": "Internal message providing additional context for the validation (e.g. representation content validation details)."
+        }
+      }
+    },
+    "VALIDATION_ERROR_MODEL_REFERENCE": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "type": "string",
+              "description": "A description of the error"
+            },
+            "errors": {
+              "type": "array",
+              "description": "An array of validation errors",
+              "items": {
+                "$ref": "#/definitions/ERROR_MODEL_REFERENCE"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FACETS_MODEL_REFERENCE": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "This object represents the possible facets for this resource",
+        "readOnly": true,
+        "properties": {
+          "descriptor": {
+            "type": "string",
+            "description": "A description of the facet"
+          },
+          "facetParameter": {
+            "type": "string",
+            "description": "The alias used to select the facet"
+          },
+          "values": {
+            "type": "array",
+            "description": "the facet values",
+            "items": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "The number of instances returned by this facet"
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Workday Id or Reference Id of the instance.",
+                  "pattern": "^(([0-9a-f]{32})|(\\S+=\\S+))$"
+                },
+                "descriptor": {
+                  "type": "string",
+                  "description": "A description of the facet"
+                },
+                "href": {
+                  "type": "string",
+                  "description": "A link to the instance",
+                  "readOnly": true
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "MULTIPLE_INSTANCE_MODEL_REFERENCE": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+          }
+        }
+      }
+    },
+    "additionalJobs_352c3a97ecd51000353cba4ccc1c0043": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/jobDataForWorker_b8ac205877fd10000ea91719a02a00a2"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Position  \nExample(s): Position_ID=Sample_Value"
+            }
+          }
+        }
+      ]
+    },
+    "workerType_3f78eeedc01d1000138d97d80e5a0000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Retrieves the employee type or contingent worker type for the worker."
+    },
+    "primaryJob_352c3a97ecd51000353cba144c5b0042": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/jobDataForWorker_b8ac205877fd10000ea91719a02a00a2"
+        },
+        {}
+      ],
+      "description": "The worker's primary job."
+    },
+    "person_0ad147648b0a1000237bd486634a001a": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/personDataView_be343791f59d100028d6a277ca8a0017"
+        },
+        {}
+      ],
+      "description": "Person for the Worker"
+    },
+    "workerData_c2466b0778c610000d1936006720000e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "additionalJobs": {
+              "type": "array",
+              "description": "The employee’s additional jobs and international assignments.",
+              "items": {
+                "$ref": "#/definitions/additionalJobs_352c3a97ecd51000353cba4ccc1c0043"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "workerType": {
+              "$ref": "#/definitions/workerType_3f78eeedc01d1000138d97d80e5a0000"
+            },
+            "primaryJob": {
+              "$ref": "#/definitions/primaryJob_352c3a97ecd51000353cba144c5b0042"
+            },
+            "person": {
+              "$ref": "#/definitions/person_0ad147648b0a1000237bd486634a001a"
+            },
+            "workerId": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The Employee ID or Contingent Worker ID for the worker.",
+              "x-workday-type": "Text"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Worker"
+            }
+          }
+        }
+      ]
+    },
+    "days_842800d7bb0210007795581ea32a01d4": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/timeOffRequestEntryView_842800d7bb02100077925c66539101c8"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Time Off Entry"
+            }
+          }
+        }
+      ]
+    },
+    "businessProcessParameters_842800d7bb0210007795581554ca01d3": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/businessProcessParameters_842800d7bb0210007706a629ba9101c4"
+        },
+        {}
+      ],
+      "description": "The Action Event instance to be used with businessProcessLinkable linked service representations."
+    },
+    "timeOffRequestEventView_842800d7bb021000779558096f1a01d2": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "array",
+              "description": "Time Off Entries",
+              "items": {
+                "$ref": "#/definitions/days_842800d7bb0210007795581ea32a01d4"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "businessProcessParameters": {
+              "$ref": "#/definitions/businessProcessParameters_842800d7bb0210007795581554ca01d3"
+            }
+          }
+        }
+      ]
+    },
+    "days_db70b83ce44510000e82dfa2cfe80016": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/correctTimeOffEntryView_db70b83ce445100017dce7b276370096"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Time Off Entry"
+            }
+          }
+        }
+      ]
+    },
+    "businessProcessParameters_db70b83ce44510000e82df7644ea0015": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/businessProcessParameters_842800d7bb0210007706a629ba9101c4"
+        },
+        {}
+      ],
+      "description": "The Action Event instance to be used with businessProcessLinkable linked service representations."
+    },
+    "correctTimeOffEventView_db70b83ce44510000e82df4b23b10014": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "days": {
+              "type": "array",
+              "description": "The time off correction entries.",
+              "items": {
+                "$ref": "#/definitions/days_db70b83ce44510000e82dfa2cfe80016"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "businessProcessParameters": {
+              "$ref": "#/definitions/businessProcessParameters_db70b83ce44510000e82df7644ea0015"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Time Off Correction Event"
+            }
+          }
+        }
+      ]
+    },
+    "position_37fdf44d56f6100011e170fd8e2d00ef": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Position of the Time Off Entry."
+    },
+    "reason_37fdf44d56f6100011267c9f346f00df": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The reason for the time off entry."
+    },
+    "timeOffType_e4fed8dc649110000837a54912c717ff": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/coordinatedTimeOffTypeView_c0636befe813100027300e99d009917e"
+        },
+        {}
+      ],
+      "description": "The time off type name or absence table name for the time off entry."
+    },
+    "status_37fdf44d56f6100011c6ab4d0c5400ec": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Status of the Time Off Entry.\n\nThe valid Time Off Entry Statuses are Approved, Submitted, Not Submitted, and Sent Back."
+    },
+    "unit_e46cfd73e9d31000278eea758ff702aa": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Unit of the Time Off Entry. The valid Units are Hours and Days."
+    },
+    "worktags_4a497a495bdf10001c4a914baf6e0000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceWorktagsView_4a497a495bdf10001c489926b7880000"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Absence Tag"
+            }
+          }
+        }
+      ]
+    },
+    "worker_e46cfd73e9d310002778bbb1ed0202a7": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The context \\~Worker\\~ of the Time Off Entry."
+    },
+    "timeOffDetailsView_8154239388f210001f7d7955e7350000": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "timeOffEntryId": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The WID of the Time Off Entry for the Worker.",
+              "maxLength": 36,
+              "x-workday-type": "Text",
+              "x-workday-confidence-level": "Production"
+            },
+            "position": {
+              "$ref": "#/definitions/position_37fdf44d56f6100011e170fd8e2d00ef"
+            },
+            "comment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The comment on the time off entry.",
+              "x-workday-type": "Text"
+            },
+            "reason": {
+              "$ref": "#/definitions/reason_37fdf44d56f6100011267c9f346f00df"
+            },
+            "timeOffType": {
+              "$ref": "#/definitions/timeOffType_e4fed8dc649110000837a54912c717ff"
+            },
+            "quantity": {
+              "type": "number",
+              "example": 100000000000,
+              "description": "The Quantity of the Time Off Entry in the units specified by the Unit response field.",
+              "x-workday-type": "Numeric"
+            },
+            "status": {
+              "$ref": "#/definitions/status_37fdf44d56f6100011c6ab4d0c5400ec"
+            },
+            "date": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The Date of the Time Off Entry using the format yyyy-mm-dd.",
+              "x-workday-type": "Date"
+            },
+            "unit": {
+              "$ref": "#/definitions/unit_e46cfd73e9d31000278eea758ff702aa"
+            },
+            "worktags": {
+              "type": "array",
+              "description": "The worktags associated with the time off entry.",
+              "items": {
+                "$ref": "#/definitions/worktags_4a497a495bdf10001c4a914baf6e0000"
+              },
+              "x-workday-type": "Multi-instance",
+              "x-workday-confidence-level": "Production"
+            },
+            "worker": {
+              "$ref": "#/definitions/worker_e46cfd73e9d310002778bbb1ed0202a7"
+            }
+          }
+        }
+      ]
+    },
+    "unit_842800d7bb02100079a568fee1ad01e5": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/unitOfTimeView_842800d7bb02100079a1a864029501e0"
+        },
+        {}
+      ],
+      "description": "The unit of time in hours or days."
+    },
+    "dailyQuantityView_842800d7bb02100079a568e53e1001e2": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "unit": {
+              "$ref": "#/definitions/unit_842800d7bb02100079a568fee1ad01e5"
+            },
+            "dailyDefaultQuantity": {
+              "type": "number",
+              "example": 999999.999999,
+              "description": "The daily default quantity configured on the Time Off Plan or as an override on the Time Off.",
+              "x-workday-type": "Numeric"
+            },
+            "date": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The dates of the time off entry.",
+              "x-workday-type": "Date"
+            }
+          }
+        }
+      ]
+    },
+    "unitOfTime_4100eb9364bf100005260dbcfdfc0183": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The unit of time for this absence type. Possible values: * Hours, c4dacbd56bca4a9a8950e8d3ed21bbdb * Days, 4d9c0a4936614375aa5e97b6223625f2 * Months, 39c1b2453f2046838a7c0c8f6c46e053"
+    },
+    "position_4100eb9364bf100005260da5b8b90180": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/positionView_842800d7bb0210007490d990d3d4016e"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Position"
+            }
+          }
+        }
+      ]
+    },
+    "absenceReasons_4100eb9364bf100005260d11cbe10175": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceReasonView_4100eb9364bf100005a9bacf0b3f0189"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Absence Reason"
+            }
+          }
+        }
+      ]
+    },
+    "category_4100eb9364bf100005260d6890590177": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The absence type category. Possible values: * Time Off, 17bd6531c90c100016d4b06f2b8a07ce * Leave of Absence Type, 17bd6531c90c100016d74f8dfae007d0 * Absence Table, 17bd6531c90c100016da3f5b554007d2"
+    },
+    "additionalFields_4100eb9364bf100005260d6f59540178": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eligibleAbsenceTypesAdditionalFieldView_4100eb9364bf100005e3bbaf894c018e"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Leave Type Additional Attribute Criteria"
+            }
+          }
+        }
+      ]
+    },
+    "absenceTypeGroup_4100eb9364bf100005260d5e93040176": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceTypeGroupView_4100eb9364bf100005caee6e687c018b"
+        },
+        {}
+      ],
+      "description": "The absence type group for the absence type."
+    },
+    "worktags_9788c038bc4e10002a21353f13030000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceWorktagsView_d5853cb6fb1610002bc26d37e9f50000"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Absence Setup Worktag Type Joiner"
+            }
+          }
+        }
+      ]
+    },
+    "entryOption_4100eb9364bf100005260d9147eb017d": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The entry option for the time off. Possible values: \n* Enter through time off only\n\n* Enter through time tracking only\n\n* Enter through time tracking or time off"
+    },
+    "eligibleAbsenceTypeView_4100eb9364bf100005260cb771840174": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "unitOfTime": {
+              "$ref": "#/definitions/unitOfTime_4100eb9364bf100005260dbcfdfc0183"
+            },
+            "positionBased": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the time off type or leave type is position based.",
+              "x-workday-type": "Boolean"
+            },
+            "position": {
+              "type": "array",
+              "description": "The position associated to the time off or leave of absence.",
+              "items": {
+                "$ref": "#/definitions/position_4100eb9364bf100005260da5b8b90180"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "absenceReasons": {
+              "type": "array",
+              "description": "Valid reasons associated with the time off, absence table, or leave of absence.",
+              "items": {
+                "$ref": "#/definitions/absenceReasons_4100eb9364bf100005260d11cbe10175"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "reasonRequired": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the time off type, absence table, or leave type requires a reason.",
+              "x-workday-type": "Boolean"
+            },
+            "displayStartAndEndTime": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the time off type has start and end times enabled.",
+              "x-workday-type": "Boolean"
+            },
+            "id": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Id of the instance",
+              "maxLength": 36,
+              "x-workday-type": "Text"
+            },
+            "category": {
+              "$ref": "#/definitions/category_4100eb9364bf100005260d6890590177"
+            },
+            "additionalFields": {
+              "type": "array",
+              "description": "The additional field associated with a leave of absence type.",
+              "items": {
+                "$ref": "#/definitions/additionalFields_4100eb9364bf100005260d6f59540178"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "dailyDefaultQuantity": {
+              "type": "number",
+              "example": 999999.999999,
+              "description": "The default value daily quantity of the absence type to use.",
+              "x-workday-type": "Numeric"
+            },
+            "absenceTypeGroup": {
+              "$ref": "#/definitions/absenceTypeGroup_4100eb9364bf100005260d5e93040176"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Descriptor for Coordinated Absence Type",
+              "x-workday-type": "Text"
+            },
+            "calculateQuantityBasedOnStartAndEndTime": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the quantity is based on the start and end times for the time off type.",
+              "x-workday-type": "Boolean"
+            },
+            "worktags": {
+              "type": "array",
+              "description": "The worktags configured for the time off type.",
+              "items": {
+                "$ref": "#/definitions/worktags_9788c038bc4e10002a21353f13030000"
+              },
+              "x-workday-type": "Multi-instance",
+              "x-workday-confidence-level": "Production"
+            },
+            "entryOption": {
+              "$ref": "#/definitions/entryOption_4100eb9364bf100005260d9147eb017d"
+            },
+            "crossingOverMidnightEnabled": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the time off type is configured for crossing over midnight.",
+              "x-workday-type": "Boolean",
+              "x-workday-confidence-level": "Production"
+            },
+            "startAndEndTimeRequired": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the start and end times are required for the time off type.",
+              "x-workday-type": "Boolean"
+            }
+          }
+        }
+      ]
+    },
+    "reason_e044f9b8309d10001cd88898483a00eb": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Reason of the Leave Of Absence."
+    },
+    "worker_e044f9b8309d10001cd8888990c100e9": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The context \\~Worker\\~ of the Leave Of Absence."
+    },
+    "leaveImpactFields_a4550baaf8f110000e53f3b6473200cb": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/leaveImpactFieldsLeavesOfAbsenceView_a4550baaf8f110000e99f258486100cd"
+        },
+        {}
+      ],
+      "description": "Current Leave Request Event."
+    },
+    "position_e044f9b8309d10001cd8895e9f0500ed": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Position of the Leave Of Absence."
+    },
+    "additionalFields_43bb5714be2d100016961884a2340000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/additionalFieldsLeavesOfAbsenceView_43bb5714be2d100016af0909bb100000"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Additional Field Value"
+            }
+          }
+        }
+      ]
+    },
+    "priorLeaveEvent_e044f9b8309d10001cd88882ba8600e8": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "If true, the Leave Of Absence event is linked to a prior leave event."
+    },
+    "status_e044f9b8309d10001cd8887c062300e7": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Status of the Leave Of Absence."
+    },
+    "leaveType_e044f9b8309d10001cd8889f738e00ec": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The Leave Type of the Leave Of Absence."
+    },
+    "leavesOfAbsenceView_43bb5714be2d10001634f7c14f620000": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "businessProcessStepStatus": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The Business Process Step Status of the Leave Of Absence.",
+              "x-workday-type": "Text"
+            },
+            "reason": {
+              "$ref": "#/definitions/reason_e044f9b8309d10001cd88898483a00eb"
+            },
+            "actualLastDayOfLeave": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The Actual Last Day Of Work for the Leave Of Absence using the yyyy-mm-dd format.",
+              "x-workday-type": "Date"
+            },
+            "latestLeaveComment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The Latest Leave Comment of the Leave Of Absence.",
+              "x-workday-type": "Text"
+            },
+            "worker": {
+              "$ref": "#/definitions/worker_e044f9b8309d10001cd8888990c100e9"
+            },
+            "estimatedLastDayOfLeave": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The Estimated Last Day Of Leave of the Leave Of Absence using the yyyy-mm-dd format.",
+              "x-workday-type": "Date"
+            },
+            "lastDayOfWork": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The Last Day Of Work of the Leave Of Absence using the yyyy-mm-dd format.",
+              "x-workday-type": "Date"
+            },
+            "leaveImpactFields": {
+              "$ref": "#/definitions/leaveImpactFields_a4550baaf8f110000e53f3b6473200cb"
+            },
+            "position": {
+              "$ref": "#/definitions/position_e044f9b8309d10001cd8895e9f0500ed"
+            },
+            "additionalFields": {
+              "type": "array",
+              "description": "Retrieves the additional fields details for the leave of absence request event.",
+              "items": {
+                "$ref": "#/definitions/additionalFields_43bb5714be2d100016961884a2340000"
+              },
+              "x-workday-type": "Multi-instance",
+              "x-workday-confidence-level": "Production"
+            },
+            "priorLeaveEvent": {
+              "$ref": "#/definitions/priorLeaveEvent_e044f9b8309d10001cd88882ba8600e8"
+            },
+            "status": {
+              "$ref": "#/definitions/status_e044f9b8309d10001cd8887c062300e7"
+            },
+            "firstDayOfLeave": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The First Day Of Leave of the Leave Of Absence using the yyyy-mm-dd format.",
+              "x-workday-type": "Date"
+            },
+            "leaveType": {
+              "$ref": "#/definitions/leaveType_e044f9b8309d10001cd8889f738e00ec"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Leave Request Event"
+            }
+          }
+        }
+      ]
+    },
+    "category_842800d7bb021000741e5daca7f30165": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The category which indicates time off plan, absence table or leave of absence type."
+    },
+    "worker_842800d7bb021000741e5d990f7f0163": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The worker that requested the time off or leave of absence."
+    },
+    "position_842800d7bb021000741e5dc388120168": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/positionView_842800d7bb0210007490d990d3d4016e"
+        },
+        {}
+      ],
+      "description": "The worker's position for the time off or leave of absence."
+    },
+    "unit_842800d7bb021000741e5dd38905016a": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The unit of time for the time off or leave type."
+    },
+    "absencePlan_842800d7bb021000741e5da4f0be0164": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceContainerViewForBalance_842800d7bb02100074bee44d44390170"
+        },
+        {}
+      ],
+      "description": "The time off, absence table or leave type for which the balance is returned."
+    },
+    "absenceBalanceView_842800d7bb021000741e5d56eac70162": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "category": {
+              "$ref": "#/definitions/category_842800d7bb021000741e5daca7f30165"
+            },
+            "effectiveDate": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The date for which the balance is returned.",
+              "x-workday-type": "Date"
+            },
+            "worker": {
+              "$ref": "#/definitions/worker_842800d7bb021000741e5d990f7f0163"
+            },
+            "position": {
+              "$ref": "#/definitions/position_842800d7bb021000741e5dc388120168"
+            },
+            "unit": {
+              "$ref": "#/definitions/unit_842800d7bb021000741e5dd38905016a"
+            },
+            "absencePlan": {
+              "$ref": "#/definitions/absencePlan_842800d7bb021000741e5da4f0be0164"
+            },
+            "quantity": {
+              "type": "number",
+              "example": 100000000000,
+              "description": "The balance for the time off, absence table or leave type.",
+              "x-workday-type": "Numeric"
+            },
+            "dateOfFirstAbsence": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The first day of leave for the corresponding leave type for which the balance is returned.",
+              "x-workday-type": "Date"
+            }
+          }
+        }
+      ]
+    },
+    "absenceReasonView_4100eb9364bf100005a9bacf0b3f0189": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "absenceWorktagsView_4a497a495bdf10001c489926b7880000": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "uploadedBy_b32ff437243510000e22e06470370160": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Returns the primary Role of the person who uploaded the Attachment.",
+      "x-readOnly": true
+    },
+    "category_43b30ba735b8100011ee4781a9d50146": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Returns the category of a Business Process Attachment."
+    },
+    "contentType_43b30ba735b8100011ee47993f11014a": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Content type of the attachment"
+    },
+    "eventAttachmentsForToolbar_43b30ba735b8100011ee4767246d0143": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "uploadDate": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "Returns Date the Business Process Attachment was updated.",
+              "readOnly": true,
+              "x-workday-type": "Date"
+            },
+            "fileLength": {
+              "type": "integer",
+              "example": "99999999999",
+              "description": "File length of the attachment",
+              "x-workday-type": "Numeric"
+            },
+            "fileName": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "File name of the attachment",
+              "maxLength": 255,
+              "x-workday-type": "Text"
+            },
+            "uploadedBy": {
+              "$ref": "#/definitions/uploadedBy_b32ff437243510000e22e06470370160"
+            },
+            "category": {
+              "$ref": "#/definitions/category_43b30ba735b8100011ee4781a9d50146"
+            },
+            "description": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Event attachment description",
+              "x-workday-type": "Text"
+            },
+            "file": {
+              "type": "string",
+              "format": "binary",
+              "description": "For RaaS Only (Reports used as Web Services).  Returns the raw Base64 data for an attachment or image.",
+              "x-workday-type": "File"
+            },
+            "contentType": {
+              "$ref": "#/definitions/contentType_43b30ba735b8100011ee47993f11014a"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "eligibleAbsenceTypesAdditionalFieldView_4100eb9364bf100005e3bbaf894c018e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean",
+              "example": true,
+              "description": "True if Required is set as true for the additional field on the leave type.",
+              "x-workday-type": "Boolean"
+            },
+            "hideFromEmployeeSelfService": {
+              "type": "boolean",
+              "example": true,
+              "description": "True if Hide From ESS is set as true for the additional field on the leave type.",
+              "x-workday-type": "Boolean",
+              "x-workday-confidence-level": "Production"
+            },
+            "labelOverride": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The custom text that displays instead of the field label of an additional field on a leave type.",
+              "maxLength": 100,
+              "x-workday-type": "Text",
+              "x-workday-confidence-level": "Production"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "worktagType_bf19d4a55fc710001d43eaf19ea80000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The worktag type configured for the time off type."
+    },
+    "worktagEntryOption_bf19d4a55fc71000221f03b277b70000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The entry option configured for the worktag type on the time off type."
+    },
+    "absenceWorktagsView_d5853cb6fb1610002bc26d37e9f50000": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "worktagType": {
+              "$ref": "#/definitions/worktagType_bf19d4a55fc710001d43eaf19ea80000"
+            },
+            "worktagEntryOption": {
+              "$ref": "#/definitions/worktagEntryOption_bf19d4a55fc71000221f03b277b70000"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Absence Setup Worktag Type Joiner"
+            }
+          }
+        }
+      ]
+    },
+    "personDataView_be343791f59d100028d6a277ca8a0017": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "phone": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Returns the primary public work phone number for the worker.",
+              "x-workday-type": "Text"
+            },
+            "email": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Returns the public primary work email address for the worker.",
+              "x-workday-type": "Text"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Person"
+            }
+          }
+        }
+      ]
+    },
+    "supervisoryOrganizationJobView_fab4a151b24810000d29746fb7e21259": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for \\~Supervisory Organization\\~  \nExample(s): Organization_Reference_ID=Sample_Value"
+            }
+          }
+        }
+      ]
+    },
+    "location_b8ac205877fd10000ea91737c7da00a5": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/locationDataJobView_6d3eb084b4c410002b5fa13f0c9d0056"
+        },
+        {}
+      ],
+      "description": "The location associated with the filled position or position restrictions. When associated with position restrictions, the location returned is in this order: the location on the effective job requisition, hiring restrictions, or primary location of the supervisory organization."
+    },
+    "jobProfile_b8ac205877fd10000ea9174f73c500aa": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/jobProfileJobView_fab4a151b24810000d511d61ee641262"
+        },
+        {}
+      ],
+      "description": "The job profile for the position."
+    },
+    "workSpace_426ac445037110001b3eb91ddf6f0100": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/jobWorkspaceData_1005157e3d631000144205466a6c13d3"
+        },
+        {}
+      ],
+      "description": "The work space associated with the position."
+    },
+    "jobType_b8ac205877fd10000ea91752f39c00ab": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/jobTypeData_b8ac205877fd100005c3b50b74a30055"
+        },
+        {}
+      ],
+      "description": "The position's job type which can be one of the following values: Primary, Additional Job, or International Assignment. If the position is not effective, no value will be returned. Primary and additional job are effective dated due to the Switch Primary Job business process. An international assignment cannot be switched to a be a primary job."
+    },
+    "supervisoryOrganization_b8ac205877fd10000ea91743659800a7": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/supervisoryOrganizationJobView_fab4a151b24810000d29746fb7e21259"
+        },
+        {}
+      ],
+      "description": "The supervisory organization for the position."
+    },
+    "jobDataForWorker_b8ac205877fd10000ea91719a02a00a2": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "location": {
+              "$ref": "#/definitions/location_b8ac205877fd10000ea91737c7da00a5"
+            },
+            "jobProfile": {
+              "$ref": "#/definitions/jobProfile_b8ac205877fd10000ea9174f73c500aa"
+            },
+            "workSpace": {
+              "$ref": "#/definitions/workSpace_426ac445037110001b3eb91ddf6f0100"
+            },
+            "businessTitle": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The business title for the position.",
+              "x-workday-type": "Text"
+            },
+            "jobType": {
+              "$ref": "#/definitions/jobType_b8ac205877fd10000ea91752f39c00ab"
+            },
+            "supervisoryOrganization": {
+              "$ref": "#/definitions/supervisoryOrganization_b8ac205877fd10000ea91743659800a7"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Position  \nExample(s): Position_ID=Sample_Value"
+            }
+          }
+        }
+      ]
+    },
+    "coordinatedTimeOffTypeView_c0636befe813100027300e99d009917e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The Time Off Type Name or Absence Table Name for Coordinated Time Off Entry.",
+              "x-workday-type": "Text"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Coordinated Time Off Type"
+            }
+          }
+        }
+      ]
+    },
+    "jobProfileJobView_fab4a151b24810000d511d61ee641262": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "positionView_842800d7bb0210007490d990d3d4016e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Position"
+            }
+          }
+        }
+      ]
+    },
+    "timeOffRequestAbsenceTypeView_842800d7bb021000778ffd8903e501c6": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Coordinated Time Off Type"
+            }
+          }
+        }
+      ]
+    },
+    "leaveImpactFieldsLeavesOfAbsenceView_a4550baaf8f110000e99f258486100cd": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "payrollEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the Leave Of Absence event has an effect on payroll.",
+              "x-workday-type": "Boolean"
+            },
+            "professionalLeaveEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the Leave Of Absence event has a Professional Leave Effect leave impact field.",
+              "x-workday-type": "Boolean"
+            },
+            "stockVestingEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the Leave Of Absence event has an effect on the \\~worker's\\~ stock vesting schedule. It may require a change to the vesting schedule of any stock grants that the \\~worker\\~ holds.",
+              "x-workday-type": "Boolean"
+            },
+            "schedulingEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "True if the leave event is for a leave type that is configured to allow a \\~worker\\~ to be scheduled to work when placed on leave.",
+              "x-workday-type": "Boolean"
+            },
+            "sabbaticalEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the Leave Of Absence event has an effect on sabbatical eligibility. It may require a manual change to a \\~worker's\\~ sabbatical records.",
+              "x-workday-type": "Boolean"
+            },
+            "inactivateWorker": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the \\~worker\\~ on leave will be inactivated in the Workday system. If the leave type is position-based, the \\~worker\\~ will not be inactive unless the \\~worker\\~ is on leave for all positions with this effect.",
+              "x-workday-type": "Boolean"
+            },
+            "continuousServiceAccrualEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, it has an impact on the \\~worker's\\~ service accrual. It may need a manual change to the \\~worker's\\~ service accrual.",
+              "x-workday-type": "Boolean"
+            },
+            "benefitEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, it may require a change to the \\~worker's\\~ benefits.",
+              "x-workday-type": "Boolean"
+            },
+            "talentEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, Workday removes the \\~worker\\~ on this type of leave from the \\~Worker\\~ prompt of select \\~worker\\~ reviews and feedback in talent.",
+              "x-workday-type": "Boolean"
+            },
+            "tenureEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, the Leave Of Absence event has an effect on tenure eligibility. It may require a manual change to a \\~worker's\\~ tenure records.",
+              "x-workday-type": "Boolean"
+            },
+            "absenceAccrualEffect": {
+              "type": "boolean",
+              "example": true,
+              "description": "If true, it impacts the \\~worker's\\~ absence accrual.",
+              "x-workday-type": "Boolean"
+            }
+          }
+        }
+      ]
+    },
+    "absenceTable_e24934f0f9aa100015effc1a42481661": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/absenceTable_e24934f0f9aa1000163a25c9330e1679"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Absence Table"
+            }
+          }
+        }
+      ]
+    },
+    "absenceContainerViewForBalance_842800d7bb02100074bee44d44390170": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "ID for Absence Container.",
+              "x-workday-type": "Text"
+            },
+            "timeoffs": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The Time Off name for which the balance is returned.",
+              "x-workday-type": "Text"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Descriptor for Absence Container based on Calendar Display Option",
+              "x-workday-type": "Text"
+            },
+            "absenceTable": {
+              "type": "array",
+              "description": "Returns the Absence Table for the Absence Balance.",
+              "items": {
+                "$ref": "#/definitions/absenceTable_e24934f0f9aa100015effc1a42481661"
+              },
+              "x-workday-type": "Multi-instance"
+            }
+          }
+        }
+      ]
+    },
+    "reason_842800d7bb02100077925c9c4ac201cf": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The reason for the time off entry."
+    },
+    "timeOffType_842800d7bb02100077925ca1da1501d0": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/timeOffRequestAbsenceTypeView_842800d7bb021000778ffd8903e501c6"
+        },
+        {}
+      ],
+      "description": "The time off type name or absence table name."
+    },
+    "position_842800d7bb02100077925c95ccad01ce": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/positionView_842800d7bb0210007490d990d3d4016e"
+        },
+        {}
+      ],
+      "description": "Specify this value if a worker has multiple positions that they could request time off for."
+    },
+    "timeOffRequestEntryView_842800d7bb02100077925c66539101c8": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "end": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The end time of the time off entry.",
+              "x-workday-type": "Date"
+            },
+            "reason": {
+              "$ref": "#/definitions/reason_842800d7bb02100077925c9c4ac201cf"
+            },
+            "dailyQuantity": {
+              "type": "number",
+              "example": 8,
+              "description": "The number of days or hours for this time off entry.",
+              "x-workday-type": "Numeric"
+            },
+            "comment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The comment on the time off entry.",
+              "x-workday-type": "Text"
+            },
+            "timeOffType": {
+              "$ref": "#/definitions/timeOffType_842800d7bb02100077925ca1da1501d0"
+            },
+            "start": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The start time of the time off entry.",
+              "x-workday-type": "Date"
+            },
+            "date": {
+              "type": "string",
+              "format": "date",
+              "example": "2025-09-05T07:00:00.000Z",
+              "description": "The date of the Time Off Entry.",
+              "x-workday-type": "Date"
+            },
+            "position": {
+              "$ref": "#/definitions/position_842800d7bb02100077925c95ccad01ce"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Time Off Entry"
+            }
+          }
+        }
+      ]
+    },
+    "country_af21e47ff7c01000092ecf4d7ad30270": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/countryDataForLocationData_af21e47ff7c01000092e0e4f9a22026e"
+        },
+        {}
+      ],
+      "description": "Returns the country from the primary address for the location."
+    },
+    "locationDataJobView_6d3eb084b4c410002b5fa13f0c9d0056": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "country": {
+              "$ref": "#/definitions/country_af21e47ff7c01000092ecf4d7ad30270"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Location"
+            }
+          }
+        }
+      ]
+    },
+    "jobTypeData_b8ac205877fd100005c3b50b74a30055": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            }
+          }
+        }
+      ]
+    },
+    "unitOfTimeView_842800d7bb02100079a1a864029501e0": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "attachments_43b30ba735b8100010e21c8b136f0119": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/eventAttachmentsForToolbar_43b30ba735b8100011ee4767246d0143"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Event Attachment (Derived)  \nExample(s): File_ID=Sample_Value"
+            }
+          }
+        }
+      ]
+    },
+    "for_5d688bd57bb910001815ab3dd10024a9": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The thing which this business process is about. It could be another business process if this is a sub-process",
+      "x-readOnly": true
+    },
+    "action_38ff08ab6736100010816009079d0126": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "a set containing no instances"
+    },
+    "overallBusinessProcess_5d688bd57bb910001815ab49927724aa": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Returns the Top Level (overall) Business Process that this Event is part of or returns the same instance if this Event is not a sub-process.",
+      "x-readOnly": true
+    },
+    "comments_38ff08ab6736100010b0e3c4dbb3012b": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/comments_86093b8a932f10001499f356ff83012e"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The id for Comment"
+            }
+          }
+        }
+      ]
+    },
+    "transactionStatus_7457adcbe0fa1000089b63ab3a510000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Transaction Status for Facet Search"
+    },
+    "businessProcessParameters_842800d7bb0210007706a629ba9101c4": {
+      "allOf": [
+        {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "warningValidations": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Warning message for an action event triggered by a condition.",
+              "readOnly": true,
+              "x-workday-type": "Text"
+            },
+            "overallStatus": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The current status of the business process.  For example: Successfully Completed, Denied, Terminated.",
+              "readOnly": true,
+              "x-workday-type": "Text"
+            },
+            "attachments": {
+              "type": "array",
+              "description": "Returns attachments associated with this business process that are uploaded from the toolbar and are accessible to the processing person. Returns blank if either of these conditions are not met.",
+              "items": {
+                "$ref": "#/definitions/attachments_43b30ba735b8100010e21c8b136f0119"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "for": {
+              "$ref": "#/definitions/for_5d688bd57bb910001815ab3dd10024a9"
+            },
+            "criticalValidations": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Validation message for an action event triggered by a condition.",
+              "readOnly": true,
+              "x-workday-type": "Text"
+            },
+            "comment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Returns a null.",
+              "x-workday-type": "Text"
+            },
+            "action": {
+              "$ref": "#/definitions/action_38ff08ab6736100010816009079d0126"
+            },
+            "overallBusinessProcess": {
+              "$ref": "#/definitions/overallBusinessProcess_5d688bd57bb910001815ab49927724aa"
+            },
+            "comments": {
+              "type": "array",
+              "description": "Returns the comments for the current business process.",
+              "readOnly": true,
+              "items": {
+                "$ref": "#/definitions/comments_38ff08ab6736100010b0e3c4dbb3012b"
+              },
+              "x-workday-type": "Multi-instance"
+            },
+            "transactionStatus": {
+              "$ref": "#/definitions/transactionStatus_7457adcbe0fa1000089b63ab3a510000"
+            }
+          }
+        }
+      ]
+    },
+    "additionalFieldsLeavesOfAbsenceView_43bb5714be2d100016af0909bb100000": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Retrieves the text value of the additional field on the leave of absence request event, regardless of the field data type.",
+              "x-workday-type": "Text"
+            },
+            "name": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Retrieves the name of the additional field on the leave of absence request event.",
+              "x-workday-type": "Text"
+            },
+            "id": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Retrieves the ID for the additional field on the leave of absence request event.",
+              "x-workday-type": "Text"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            }
+          }
+        }
+      ]
+    },
+    "absenceTypeGroupView_4100eb9364bf100005caee6e687c018b": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "displayOrder": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Absence Type Group display order.",
+              "x-workday-type": "Text"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "absenceTable_e24934f0f9aa1000163a25c9330e1679": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "reason_4f9536ba4905100018153cb869570000": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The reason for the time off entry."
+    },
+    "correctedEntry_db70b83ce4451000193d5e81c33300aa": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "The time off entry to correct."
+    },
+    "correctTimeOffEntryView_db70b83ce445100017dce7b276370096": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "$ref": "#/definitions/reason_4f9536ba4905100018153cb869570000"
+            },
+            "start": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "Customer-Facing Description The start time of the time off entry.",
+              "x-workday-type": "Date",
+              "x-workday-confidence-level": "Production"
+            },
+            "comment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "The comment on time off correction entry.",
+              "x-workday-type": "Text"
+            },
+            "end": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "The end time of the time off entry.",
+              "x-workday-type": "Date",
+              "x-workday-confidence-level": "Production"
+            },
+            "dailyQuantity": {
+              "type": "number",
+              "example": 999.999999,
+              "description": "The new time off entry hours.",
+              "x-workday-type": "Numeric"
+            },
+            "correctedEntry": {
+              "$ref": "#/definitions/correctedEntry_db70b83ce4451000193d5e81c33300aa"
+            },
+            "delete": {
+              "type": "boolean",
+              "example": true,
+              "description": "True if the time off entry is marked for deletion through the REST API.",
+              "x-workday-type": "Boolean",
+              "x-workday-confidence-level": "Production"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id for Time Off Entry"
+            }
+          }
+        }
+      ]
+    },
+    "person_86093b8a932f10001499f38c72410130": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/INSTANCE_MODEL_REFERENCE"
+        },
+        {}
+      ],
+      "description": "Comment made by Person"
+    },
+    "comments_86093b8a932f10001499f356ff83012e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "person": {
+              "$ref": "#/definitions/person_86093b8a932f10001499f38c72410130"
+            },
+            "comment": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit amet, cum choro singulis consectetuer ut, ubique iisque contentiones ex duo. Quo lorem etiam eu.",
+              "description": "Comment",
+              "x-workday-type": "Text"
+            },
+            "commentDate": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-05-30T07:00:00.000Z",
+              "description": "Gives the moment at which the instance was originally created.",
+              "x-workday-type": "Date"
+            }
+          }
+        }
+      ]
+    },
+    "jobWorkspaceData_1005157e3d631000144205466a6c13d3": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "locationChain": {
+              "type": "string",
+              "example": "Sample Location Chain",
+              "description": "Location chain including bread crumbs for location.",
+              "x-workday-type": "Text"
+            },
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            },
+            "id": {
+              "type": "string",
+              "description": "Workday Id or Reference Id of the instance."
+            }
+          }
+        }
+      ]
+    },
+    "countryDataForLocationData_af21e47ff7c01000092e0e4f9a22026e": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "string",
+              "example": "Lorem ipsum dolor sit ame",
+              "description": "The display name of the instance"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
