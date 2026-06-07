@@ -1,10 +1,11 @@
 # Time Off Management Microservice — Implementation Specification
 
 **Product owner:** MyCompany  
-**Version:** 1.4  
+**Version:** 1.6  
 **Status:** Draft  
-**Source:** Derived from [trd.md](./trd.md)  
-**Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron
+**Source:** Derived from [trd.md](./trd.md) (TRD v2)  
+**Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
+**HCM adapter (v1):** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`)
 
 ---
 
@@ -14,9 +15,9 @@ This document translates the Technical Requirements Document (TRD) into an imple
 
 MyCompany is the **product owner** of this microservice: MyCompany builds, deploys, and operates it as the time-off workflow boundary within the MyCompany platform. Upstream MyCompany applications consume its API. In this document, **the microservice** refers to the service's runtime behavior; **MyCompany** refers to product ownership, platform context, or organizational responsibility unless stated otherwise.
 
-**Core architectural behavior:** The microservice is the **employee-facing interface for time off**—employees submit leave requests, managers approve them, and participants view balances through this service. The HCM system (e.g. Workday, SAP SuccessFactors) remains the **source of truth for employment data and time-off master data** (balances, accrual, carryover, leave types, policies, ledger history). HCM-sourced fields are synced into read-only local mirrors; they are never created or updated through time-off APIs. The microservice owns **workflow state** (requests, approvals) and a local **pending balance overlay** for in-flight requests.
+**Core architectural behavior:** The microservice is the **employee-facing interface for time off** and the **only system of record for approval workflow**—employees submit leave requests, managers approve or reject them entirely within this service, and participants view balances through this API. HCM (Workday Absence Management v5 in v1) remains the **source of truth for employment master data and time-off master data** (balances, accrual, carryover, leave types, policies). The service keeps a **minimal local HCM working copy** refreshed by **nightly batch sync** (employee snapshot + time-off master data only), plus **workflow-owned records** (requests, approvals, notifications, audit, local balance ledger, pending reservations). HCM-sourced snapshot fields are read-only locally; they are never created or updated through time-off APIs.
 
-**Integration constraints:** The microservice is **not the only writer to HCM**—balances may change externally (work anniversaries, year-start refreshes, other integrations). HCM provides both a **realtime API** (point get/send by employee and dimensions such as `locationId`) and a **batch API** (full balance corpus with dimensions). HCM may return errors for invalid dimension combinations or insufficient balance when filing leave, but this is **not guaranteed**; the microservice must validate **defensively** before submit and before posting to HCM.
+**Integration constraints:** Submit creates local `pending` workflow state and a pending reservation **without** calling HCM. HCM is called at **approval** time to post the accounting entry (`requestTimeOff`) and at **cancel of approved** entries to correct/delete them (`correctTimeOffEntry`). Submit and approve attempt realtime balance reads from HCM when available, but fall back to the local working copy and ledger when HCM reads fail. When HCM is unavailable during approval, the request moves to `approved_pending_hcm_update` and an hourly job retries the HCM write for up to 24 hours before auto-rejecting. Employment fields are **not** re-fetched from HCM on each request; they come from the nightly employee snapshot. The microservice is **not the only writer to HCM balances**; nightly sync reconciles HCM final balances to a **local balance ledger** via idempotent sync-adjustment entries. Nightly sync does **not** import HCM approval workflow state. HCM validation may be incomplete; the microservice must validate **defensively** before creating pending workflow state and before HCM accounting writes.
 
 Where this spec and the TRD conflict, this spec takes precedence for implementation details; the TRD remains authoritative for product scope and business intent.
 
@@ -40,22 +41,26 @@ flowchart LR
 
 ### Division of Responsibility
 
-| Concern | System of Record | Employee Interaction |
-|---|---|---|
-| Submitting and tracking leave requests | Time Off Microservice | Through the microservice API |
-| Approval workflow | Time Off Microservice | Through the microservice API |
-| Viewing balances, accrual, policies | HCM (synced read-only into microservice) | Through the microservice API (display) |
-| Leave balances, accrual, carryover, policies | HCM (Workday, SAP, etc.) | Managed in HCM; synced read-only into the microservice |
-| Employment identity, status, org structure | HCM (Workday, SAP, etc.) | Managed in HCM; synced read-only into the microservice |
+| Concern | System of Record | Local Copy | Employee Interaction |
+|---|---|---|---|
+| Leave request workflow | Time Off Microservice | Workflow state | Through the microservice API |
+| Approval workflow | Time Off Microservice | Workflow state | Through the microservice API |
+| Email (notifications) | HCM | Nightly employee snapshot | Microservice notifications |
+| Manager, department, employment status | HCM | Nightly employee snapshot | Through the microservice API |
+| Leave types and policies | HCM | Nightly time-off working copy | Through the microservice API |
+| Balances, accrual, carryover | HCM | Current balance snapshot | Through the microservice API |
+| Local balance ledger | Time Off Microservice | Workflow + reconciliation entries | Reports / balance-ledger API |
+| Pending balance reservations | Time Off Microservice | Ledger overlay | Internal |
+| Employee name, phone, hire date | HCM | **Not stored** | HCM or upstream apps |
 
 | Actor | Responsibility |
 |---|---|
 | MyCompany | Product owner; builds, deploys, and operates the Time Off Microservice |
-| HCM (Workday, SAP, etc.) | Source of truth for **employment data** and **time-off master data**—identity, hierarchy, status, balances, accrual, policies, ledger |
-| Time Off Microservice | MyCompany-owned **employee interface for time-off workflow**—leave requests, approvals, balance display, HCM integration, audit |
+| HCM (Workday v1) | Source of truth for employment and time-off master data; accounting writes after local approval; no REST approve/deny and no approval-workflow sync in v1 |
+| Time Off Microservice | MyCompany-owned **employee interface for time-off workflow**—sole owner of approval routing and decisions; leave requests, balance display, nightly master-data sync, local ledger, audit |
 | API clients | MyCompany upstream apps and authorized integrations that present the microservice to employees, managers, and HR admins |
 
-Employees **do not** submit leave requests to HCM in this architecture. They use applications backed by the microservice. The microservice validates requests against synced HCM employment and time-off data but does not authoritatively mutate balances, accrual, or policies.
+Employees **do not** interact with HCM directly. They use applications backed by the microservice. On submit, the microservice validates defensively, optionally reads HCM balances, and creates local pending workflow state without writing to HCM. On approve, the microservice records the approval decision, posts the accounting entry to Workday via `requestTimeOff`, and finalizes local `approved` state on success—or enters `approved_pending_hcm_update` with hourly retries when HCM is unavailable. Reject is local-only. The microservice does not authoritatively manage accrual, carryover, or policy definitions, and does not import HCM approval workflow during nightly sync.
 
 ### HCM Integration Challenges
 
@@ -63,10 +68,11 @@ The microservice is MyCompany's HCM integration boundary for time-off. Operation
 
 | Challenge | Implication for the microservice |
 |---|---|
-| **Multi-writer HCM** | Balances change in HCM without microservice action (anniversary accrual, year-start refresh, HR adjustments, other integrations). Mirrors are eventually consistent; batch sync + optional realtime refresh required. |
-| **Realtime HCM API** | Point operations: get balance or file leave for a specific combination (e.g. `1 day` for `employeeId` + `locationId` + leave type). Used for pre-approve checks and posting approved usage. |
-| **Batch HCM API** | Bulk corpus of time-off balances with dimensional keys pushed to or pulled by the microservice. Used for scheduled mirror refresh and reconciliation baselines. |
-| **Unreliable HCM rejection** | HCM may error on invalid dimensions or insufficient balance when filing leave, but not always. **Defensive local validation is mandatory**; HCM errors are supplementary. |
+| **Multi-writer HCM** | Balances change in HCM without microservice action. Nightly sync reconciles HCM final balances to the local ledger via sync-adjustment entries. |
+| **Nightly batch sync (Workday)** | No single batch-corpus endpoint. Aggregate paginated GETs (`/workers`, `/balances`, `/eligibleAbsenceTypes`, etc.) into employee snapshot and time-off master data only. **Do not** import HCM approval queues or workflow state. |
+| **Realtime HCM API (Workday)** | Balance reads at submit/approve; post accounting entry at approve (`requestTimeOff`); cancel/correct approved entries (`correctTimeOffEntry`). Optional `timeOffDetails` reads verify posted entries only. **Not** used for per-request employment reads or approval-workflow reconciliation. |
+| **Workday approval gap** | No REST approve/deny. All approval UX and workflow state live in the microservice; HCM receives accounting writes only after local approval. |
+| **Unreliable HCM rejection** | HCM may accept or reject unexpectedly at approve write. **Defensive local validation is mandatory** before pending workflow creation and before HCM accounting writes; log reconciliation metadata on mismatch. |
 
 ```mermaid
 flowchart TB
@@ -76,16 +82,18 @@ flowchart TB
     Other[Other integrations]
   end
   HCM[(HCM System of Record)]
-  Mirror[Local read-only mirrors]
-  Workflow[Leave request workflow]
+  WorkingCopy[Nightly HCM master-data copy]
+  Workflow[Leave request + approval workflow]
 
-  MS -->|realtime post on approve| HCM
+  MS -->|approve / cancel-of-approved writes| HCM
+  MS -->|balance reads at submit/approve| HCM
   HCMNative --> HCM
   Other --> HCM
-  HCM -->|batch corpus sync| Mirror
-  HCM -->|realtime get| Mirror
-  Mirror --> Workflow
+  HCM -->|nightly paginated batch| WorkingCopy
+  WorkingCopy --> Workflow
   Workflow -->|defensive validate| Workflow
+  Workflow -->|local ledger| Ledger[Local balance ledger]
+  WorkingCopy -->|nightly reconcile balances| Ledger
 ```
 
 ---
@@ -111,6 +119,7 @@ timeoff-service/
 │   │   └── v1/
 │   │       ├── employees.ts
 │   │       ├── sync.ts
+│   │       ├── sync-runs.ts
 │   │       ├── leave-types.ts
 │   │       ├── policies.ts
 │   │       ├── leave-requests.ts
@@ -126,21 +135,24 @@ timeoff-service/
 │   │   ├── leave-request.service.ts
 │   │   ├── approval.service.ts
 │   │   ├── balance.service.ts
+│   │   ├── ledger.service.ts
 │   │   ├── balance-sync.service.ts
 │   │   ├── policy-engine.ts
 │   │   ├── audit.service.ts
 │   │   └── notification.service.ts
-│   ├── integrations/
-│   │   └── hcm/
-│   │       ├── hcm.client.ts
-│   │       ├── hcm.adapter.ts
-│   │       └── types.ts
 │   ├── jobs/
 │   │   ├── scheduler.ts
-│   │   ├── employee-sync.job.ts
-│   │   ├── time-off-sync.job.ts
+│   │   ├── nightly-hcm-sync.job.ts      # Bootstrap + recurring nightly batch
 │   │   ├── approval-reminder.job.ts
-│   │   └── reconciliation.job.ts
+│   │   └── hcm-approval-retry.job.ts    # Hourly retry for approved_pending_hcm_update
+│   ├── integrations/
+│   │   └── hcm/
+│   │       ├── hcm.client.ts            # HcmClient interface
+│   │       ├── workday/
+│   │       │   ├── workday.adapter.ts   # Absence Management v5
+│   │       │   ├── workday.client.ts
+│   │       │   └── types.ts
+│   │       └── types.ts
 │   ├── auth/
 │   │   ├── roles.ts
 │   │   └── guards.ts
@@ -181,14 +193,16 @@ timeoff-service/
 | `JWT_SECRET` | yes | — | HS256 signing secret |
 | `JWT_ISSUER` | no | `timeoff-service` | Expected token issuer |
 | `JWT_AUDIENCE` | no | `timeoff-api` | Expected token audience |
-| `HCM_BASE_URL` | yes* | — | HCM REST base URL |
-| `HCM_API_TOKEN` | yes* | — | Machine credential for HCM |
-| `CRON_EMPLOYEE_SYNC` | no | `0 */6 * * *` | Every 6 hours |
-| `CRON_TIME_OFF_SYNC` | no | `0 */4 * * *` | Every 4 hours |
+| `WORKDAY_TENANT_HOSTNAME` | yes* | — | Workday tenant hostname |
+| `WORKDAY_CLIENT_ID` | yes* | — | OAuth client ID for Workday |
+| `WORKDAY_CLIENT_SECRET` | yes* | — | OAuth client secret |
+| `WORKDAY_REFRESH_TOKEN` | yes* | — | OAuth refresh token |
+| `CRON_NIGHTLY_HCM_SYNC` | no | `0 2 * * *` | Nightly HCM batch sync (02:00 UTC) |
 | `CRON_APPROVAL_REMINDER` | no | `0 9 * * 1-5` | Weekdays 09:00 UTC |
-| `CRON_RECONCILIATION` | no | `0 3 * * 0` | Sundays 03:00 UTC |
-| `HCM_REALTIME_PRECHECK_ENABLED` | no | `true` | Realtime balance read before approve when mirror stale |
-| `HCM_MIRROR_STALE_THRESHOLD_SECONDS` | no | `300` | Age after which realtime pre-check is required |
+| `CRON_HCM_APPROVAL_RETRY` | no | `0 * * * *` | Hourly retry for `approved_pending_hcm_update` requests |
+| `HCM_APPROVAL_RETRY_WINDOW_HOURS` | no | `24` | Max hours to retry HCM approval posts before auto-reject |
+| `WORKDAY_SUBMITTED_ACTION_WID` | no | `d9e4223e446c11de98360015c5e6daf6` | Workday API action WID for posting accounting entries at approval |
+| `WORKDAY_PREFLIGHT_ENABLED` | no | `true` | Run eligibleAbsenceTypes + validTimeOffDates before approve HCM write |
 | `LOG_LEVEL` | no | `info` | Pino log level |
 
 \* Required when HCM integration is enabled.
@@ -210,6 +224,7 @@ enum EmploymentStatus {
 enum LeaveRequestStatus {
   DRAFT
   PENDING
+  APPROVED_PENDING_HCM_UPDATE
   APPROVED
   REJECTED
   CANCELLED
@@ -229,13 +244,18 @@ enum ApprovalDecision {
 }
 
 enum LedgerEntryType {
-  ACCRUAL
-  USAGE
-  CANCELLATION_REVERSAL
-  CARRYOVER
-  EXPIRATION
-  MANUAL_ADJUSTMENT
-  CORRECTION
+  OPENING_BALANCE
+  PENDING_RESERVATION
+  CONFIRMED_USAGE
+  RESERVATION_RELEASE
+  USAGE_REVERSAL
+  SYNC_ADJUSTMENT
+}
+
+enum LedgerEntrySource {
+  WORKFLOW
+  HCM_REALTIME_RESPONSE
+  HCM_NIGHTLY_RECONCILIATION
 }
 
 enum SyncStatus {
@@ -248,6 +268,8 @@ enum SyncStatus {
 enum NotificationType {
   REQUEST_SUBMITTED
   REQUEST_APPROVED
+  APPROVAL_PENDING_HCM_UPDATE
+  HCM_APPROVAL_SYNC_FAILED
   REQUEST_REJECTED
   REQUEST_CANCELLED
   APPROVAL_OVERDUE
@@ -269,43 +291,27 @@ enum AuditAction {
 
 ### 5.2 Core Entities
 
-#### Employee (read-only mirror of HCM employment data)
+#### EmployeeHcmMapping (minimal nightly employee snapshot)
 
-Synced from HCM for workflow use only. Not an employee-editable record in this service.
+Prisma model `EmployeeHcmMapping` (table `employee_hcm_mappings`). Synced from HCM batch data only—**not** a full employment replica. Name, phone, hire date, termination date, employment type, and full location profile are **explicitly not stored**.
 
 | Field | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | Internal identifier |
-| `externalEmployeeId` | string | unique, not null | HCM ID |
-| `firstName` | string | not null | Read-only from HCM |
-| `lastName` | string | not null | Read-only from HCM |
-| `email` | string | unique, not null | Read-only from HCM |
+| `externalEmployeeId` | string | unique, not null | HCM / Workday worker WID |
+| `email` | string | not null | **Only contact PII stored locally**; used for notifications |
 | `managerExternalEmployeeId` | string? | | HCM manager external ID |
-| `managerId` | UUID? | FK → employees.id | Resolved local manager |
-| `department` | string? | | |
-| `location` | string? | | |
-| `employmentType` | string? | | e.g. full_time, part_time |
+| `managerId` | UUID? | FK → employee_hcm_mappings.id | Resolved after batch upsert |
+| `department` | string? | | Org attribute for routing/eligibility |
 | `employmentStatus` | EmploymentStatus | not null | |
-| `hireDate` | DateTime? | | |
-| `terminationDate` | DateTime? | | |
-| `lastSyncedAt` | DateTime? | | |
+| `syncCorrelationKey` | string? | | Optional batch correlation value |
+| `lastSyncedAt` | DateTime | not null | Snapshot freshness |
 | `createdAt` | DateTime | default now | |
 | `updatedAt` | DateTime | updatedAt | |
 
-HCM-owned employment fields MUST NOT be writable via time-off or employee-facing APIs. Updates flow from HCM sync only.
+**PII rules:** Email must not appear in logs, audit before/after snapshots, error payloads, or metrics labels. Encrypt at rest where supported. On erasure requests, redact email in place while preserving workflow linkage.
 
-#### EmployeeSyncState
-
-| Field | Type | Notes |
-|---|---|---|
-| `id` | UUID | PK |
-| `syncSource` | string | e.g. `hcm-rest`, `hcm-webhook` |
-| `lastSyncStartedAt` | DateTime? | |
-| `lastSyncCompletedAt` | DateTime? | |
-| `lastSyncStatus` | SyncStatus | |
-| `lastSyncCursor` | string? | Incremental cursor/timestamp |
-| `errorDetails` | Json? | Failed record summaries |
-| `updatedAt` | DateTime | |
+Snapshot fields MUST NOT be writable via API. Updates flow from nightly HCM batch sync only. Departed employees are marked inactive when absent from sync; not hard-deleted while referenced by workflow or audit.
 
 #### TimeOffSyncState
 
@@ -366,43 +372,48 @@ HCM-owned leave type fields MUST NOT be writable via API. Updates flow from HCM 
 | `config` | Json | Rule-specific payload synced from HCM (see §6.3) |
 | `priority` | int | default 0 |
 
-#### LeaveBalance (read-only mirror of HCM + local pending overlay)
+#### LeaveBalance (nightly HCM working-copy snapshot)
 
-Balances are keyed by employee, leave type, and **HCM dimensions** (e.g. `locationId`). The same employee may have multiple balance rows for different dimensional combinations.
+Keyed by employee, leave type, and **HCM dimensions** (e.g. `locationId`). `currentBalance` holds HCM's final/current state from nightly sync or successful realtime balance reads. Pending reservations are **not** stored on this row—they are derived from the local ledger.
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `employeeId` | UUID | FK |
+| `employeeId` | UUID | FK → employee_hcm_mappings |
 | `leaveTypeId` | UUID | FK |
 | `dimensions` | Json | HCM dimension map, e.g. `{ "locationId": "US-NY" }` |
 | `dimensionsHash` | string | Stable hash of normalized dimensions for upsert |
-| `currentBalance` | Decimal(10,4) | Synced from HCM (batch or realtime) |
-| `pendingBalance` | Decimal(10,4) | Local overlay for PENDING requests (not in HCM) |
+| `currentBalance` | Decimal(10,4) | HCM final/current balance (nightly sync or realtime refresh) |
 | `unit` | string | `days` or `hours` |
-| `lastSyncedAt` | DateTime? | Last HCM balance sync or realtime read |
+| `lastSyncedAt` | DateTime? | Last nightly sync or realtime balance read |
 | `hcmUpdatedAt` | DateTime? | Timestamp from HCM payload |
 | `updatedAt` | DateTime | |
 
 Unique index: `(employeeId, leaveTypeId, dimensionsHash)`.
 
-#### LeaveBalanceLedger (read-only mirror of HCM)
+#### LeaveBalanceLedger (microservice-owned workflow + reconciliation ledger)
+
+**Not** an import of authoritative HCM accounting history. v1 does not sync HCM ledger rows. The local ledger supports workflow, audit, reporting, and nightly reconciliation to HCM final balances.
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `externalLedgerEntryId` | string | unique, HCM ledger entry ID |
 | `employeeId` | UUID | FK |
 | `leaveTypeId` | UUID | FK |
-| `entryType` | LedgerEntryType | Mapped from HCM |
+| `dimensions` | Json | Filing dimensions |
+| `dimensionsHash` | string | Stable hash for balance key |
+| `entryType` | LedgerEntryType | See enum |
 | `amount` | Decimal(10,4) | Positive = credit, negative = debit |
-| `effectiveDate` | DateTime | |
-| `referenceType` | string? | e.g. `hcm_leave_usage`, `hcm_accrual` |
-| `referenceId` | string? | HCM reference ID |
-| `lastSyncedAt` | DateTime? | |
-| `createdAt` | DateTime | Sync timestamp |
+| `source` | LedgerEntrySource | `workflow`, `hcm_realtime_response`, `hcm_nightly_reconciliation` |
+| `leaveRequestId` | UUID? | FK when workflow-sourced |
+| `approvalId` | UUID? | FK when approval-sourced |
+| `hcmReferenceId` | string? | Workday time-off entry WID when applicable |
+| `syncRunId` | UUID? | FK → sync_runs when sync_adjustment |
+| `idempotencyKey` | string? | unique; prevents duplicate ledger writes |
+| `effectiveAt` | DateTime | Business effective date |
+| `createdAt` | DateTime | |
 
-Ledger entries are synced from HCM; the microservice does not append authoritative accrual or adjustment entries locally.
+After each nightly sync, ledger-derived balance for a key must equal HCM `currentBalance`; otherwise append one idempotent `SYNC_ADJUSTMENT` entry per sync run and balance key.
 
 #### LeaveRequest
 
@@ -421,8 +432,12 @@ Ledger entries are synced from HCM; the microservice does not append authoritati
 | `reason` | string? | |
 | `submittedAt` | DateTime? | Set on submit |
 | `cancelledAt` | DateTime? | |
-| `hcmReferenceId` | string? | HCM leave/ absence ID after posting on approval |
-| `hcmPostedAt` | DateTime? | When usage was posted to HCM |
+| `hcmReferenceId` | string? | Workday time-off entry WID after successful approve write |
+| `hcmPostedAt` | DateTime? | When `requestTimeOff` succeeded at approval |
+| `hcmRetryStartedAt` | DateTime? | First failed approve HCM write |
+| `hcmRetryDeadlineAt` | DateTime? | End of 24h retry window |
+| `hcmRetryCount` | int | default 0 |
+| `lastHcmRetryAt` | DateTime? | Last hourly retry attempt |
 | `createdAt` / `updatedAt` | DateTime | |
 
 #### Approval
@@ -474,14 +489,30 @@ Ledger entries are synced from HCM; the microservice does not append authoritati
 | `correlationId` | string? | |
 | `createdAt` | DateTime | |
 
+#### SyncRun
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `syncType` | string | `bootstrap`, `nightly` |
+| `status` | SyncStatus | |
+| `correlationId` | string | |
+| `startedAt` | DateTime | |
+| `completedAt` | DateTime? | |
+| `employeeCount` | int? | |
+| `balanceCount` | int? | |
+| `adjustmentCount` | int? | Sync adjustment ledger entries created |
+| `errorDetails` | Json? | |
+| `createdAt` | DateTime | |
+
 #### IntegrationEvent
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
-| `source` | string | e.g. `hcm` |
-| `eventType` | string | |
-| `payload` | Json | |
+| `source` | string | e.g. `workday` |
+| `eventType` | string | e.g. `post_time_off`, `correct_time_off`, `fetch_balances` |
+| `payload` | Json | Safe metadata only; no credentials or full HCM payloads in audit |
 | `processedAt` | DateTime? | |
 | `error` | string? | |
 | `createdAt` | DateTime | |
@@ -504,66 +535,36 @@ Used for `POST` mutations that accept `Idempotency-Key` header.
 
 ## 6. Domain Rules
 
-### 6.1 Employee Sync
+### 6.1 Nightly HCM Batch Sync (Bootstrap + Recurring)
 
-Employment data is consumed from HCM; the microservice does not authoritatively store or expose write APIs for it. Sync keeps the local mirror current so leave workflows can validate employee status, manager hierarchy, and eligibility.
-
-**Trigger modes:**
-1. Cron (`CRON_EMPLOYEE_SYNC`)
-2. `POST /api/v1/sync/employees` (batch)
-3. `POST /api/v1/employees/{id}/sync` (single)
-
-**Algorithm (batch/incremental):**
-1. Read `employee_sync_state.lastSyncCursor`.
-2. Fetch employees from HCM since cursor (or full fetch if no cursor).
-3. For each HCM record:
-   - Upsert by `externalEmployeeId`.
-   - Resolve `managerId` from `managerExternalEmployeeId` when manager exists locally.
-   - Set `lastSyncedAt = now()`.
-4. Update sync state: cursor, status, timestamps, errors.
-5. Write audit log `SYNC_OPERATION`.
-
-**Idempotency:** Repeated sync of the same HCM payload produces identical local state.
-
-**Conflict resolution:** HCM employment fields overwrite local mirror fields. Time-off workflow records are never modified by sync.
-
-### 6.1a Time-Off Data Sync
-
-Time-off master data (leave types, policies, balances, ledger) is consumed from HCM; the microservice does not authoritatively compute accrual or post balance adjustments. Sync keeps local mirrors current for validation, display, and reporting.
-
-**HCM is multi-writer:** balance changes may originate in HCM without action by this microservice (work anniversary accrual, year-start refresh, other customer integrations). The microservice must not assume it observes all balance mutations synchronously.
-
-**Integration surfaces:**
-
-| Surface | Use case | Implementation |
-|---|---|---|
-| **Batch API** | Scheduled full/delta corpus of balances (with dimensions) | `hcmClient.fetchTimeOffBalanceCorpus(...)`; primary mirror refresh |
-| **Realtime API** | Point read/write for one employee + dimension set | `getTimeOffBalance(...)`, `submitLeaveUsage(...)`; pre-check and approve posting |
+Initial service bootstrap and recurring nightly sync aggregate paginated Workday GET responses into the employee snapshot and time-off working copy. Workday Absence Management v5 has **no single batch-corpus endpoint**.
 
 **Trigger modes:**
-1. Cron batch sync (`CRON_TIME_OFF_SYNC`) via HCM batch API
-2. `POST /api/v1/sync/time-off` (manual batch trigger)
-3. Realtime read for one employee + dimensions after approve or when mirror exceeds `HCM_MIRROR_STALE_THRESHOLD_SECONDS`
-4. Ingestion of HCM-initiated batch push to the microservice (optional webhook/file drop adapter)
-5. Webhook-driven incremental updates (optional)
+1. Cron (`CRON_NIGHTLY_HCM_SYNC`) — primary schedule
+2. `POST /api/v1/sync/time-off` — manual operator trigger (runs the same pipeline)
+3. Optional webhook may trigger early master-data reconciliation but does not replace nightly sync and must not drive approval workflow state.
 
-**Batch algorithm:**
-1. Read `time_off_sync_state.lastSyncCursor`.
-2. Fetch balance corpus (and types/policies/ledger if included) from HCM batch endpoint since cursor or full snapshot.
-3. Upsert by `(externalEmployeeId, externalLeaveTypeId, dimensionsHash)` and external ledger IDs.
-4. Overwrite `currentBalance` and `hcmUpdatedAt` from HCM; preserve local `pendingBalance` overlay.
-5. Update sync state; audit `SYNC_OPERATION`.
+**Workday batch sources (v1):**
+- Worker mappings from known `externalEmployeeId` values plus configured worker discovery
+- Leave types from `GET /workers/{workerWID}/eligibleAbsenceTypes`
+- Current balances from `GET /balances?worker={workerWID}&effective={syncDate}`
+- Employee snapshot fields (email, manager, department) may require complementary Workday services outside Absence Management v5 (tenant-specific)
 
-**Realtime refresh algorithm (targeted):**
-1. Resolve request or employee dimensions (e.g. derive `locationId` from employee mirror or request payload).
-2. Call `hcmClient.getTimeOffBalance({ employeeId, leaveTypeId, dimensions })`.
-3. Upsert matching `leave_balances` row; set `lastSyncedAt = now()`.
+**Algorithm:**
+1. Create `sync_runs` row with correlation ID; set status `IN_PROGRESS`.
+2. Upsert `employee_hcm_mappings` by `externalEmployeeId` (email, manager, department, employment status, sync correlation key, `lastSyncedAt`).
+3. Resolve `managerId` after all employees in the batch are upserted.
+4. Upsert leave types, policies, policy rules, and dimensional `leave_balances` from aggregated Workday data.
+5. Overwrite `leave_balances.currentBalance` and `hcmUpdatedAt` from HCM final state.
+6. For each balance key, compare ledger-derived balance to HCM `currentBalance`:
+   - If different, append one idempotent `SYNC_ADJUSTMENT` ledger entry tied to this `syncRunId`.
+   - Log externally originated changes when no matching local workflow event exists.
+7. Update `time_off_sync_state`; complete `sync_runs` with counts and status.
+8. Audit `SYNC_OPERATION`.
 
-**Externally originated changes:** When batch corpus or realtime read shows a balance change with no corresponding microservice workflow event, accept HCM value, log `EXTERNAL_HCM_BALANCE_CHANGE`, and do not alter pending overlay except where reconciliation requires adjustment.
+**Idempotency:** Safe to retry. At most one sync adjustment per sync run and balance key.
 
-**Idempotency:** Repeated sync of the same HCM payload produces identical local mirror state.
-
-**Conflict resolution:** HCM time-off fields overwrite local mirror fields. Workflow records and `pendingBalance` overlay are never modified by sync. If batch and realtime disagree, prefer the record with the latest `hcmUpdatedAt` and emit reconciliation metric.
+**Conflict resolution:** HCM batch data overwrites employee snapshot and time-off working copy fields. Workflow records, approvals, notifications, audit logs, and existing ledger entries are **never** overwritten by batch data. Nightly sync must **not** import, infer, or overwrite local approval workflow state from HCM.
 
 ### 6.1b Defensive Validation
 
@@ -573,41 +574,71 @@ HCM may reject invalid dimension combinations or insufficient balance when filin
 
 | Check | When | Error code |
 |---|---|---|
-| Dimension set resolves to a mirrored balance row | Submit, approve | `INVALID_TIME_OFF_DIMENSIONS` |
-| Leave type active and employee eligible | Submit, approve | `NOT_ELIGIBLE` / `LEAVE_TYPE_NOT_FOUND` |
-| Available balance ≥ request duration (if negative not allowed) | Submit, approve | `INSUFFICIENT_BALANCE` |
-| No overlapping pending/approved requests | Submit | `OVERLAPPING_REQUEST` |
+| Dimension set resolves to a local balance row | Submit | `INVALID_TIME_OFF_DIMENSIONS` |
+| Leave type active and employee eligible | Submit | `NOT_ELIGIBLE` / `LEAVE_TYPE_NOT_FOUND` |
+| Available balance ≥ request duration (if negative not allowed) | Submit | `INSUFFICIENT_BALANCE` |
+| Approver resolvable and active in snapshot | Submit | `APPROVER_NOT_FOUND` |
+| No overlapping pending/approved/`approved_pending_hcm_update` requests | Submit | `OVERLAPPING_REQUEST` |
 | Date range and partial-day rules | Submit | `INVALID_DATE_RANGE`, `INVALID_LEAVE_DAY` |
 
-Available balance formula: `currentBalance (HCM mirror) - pendingBalance (local overlay)`.
+Available balance formula: `ledgerBalance - pendingBalance`, adjusted by synced policy rules (max/negative). `ledgerBalance` is the sum of local ledger entries; nightly sync ensures it matches HCM `currentBalance` via sync adjustments.
 
-**Optional realtime pre-check (when `HCM_REALTIME_PRECHECK_ENABLED` and mirror age > threshold):**
-1. Call HCM realtime get for request dimensions.
-2. Refresh local `currentBalance` for that dimensional row.
-3. Re-run local balance and dimension checks before reserving pending overlay or posting to HCM.
+**Workday preflight (when `WORKDAY_PREFLIGHT_ENABLED`, on approve before HCM write):**
+1. `GET /workers/{workerWID}/eligibleAbsenceTypes`
+2. `GET /workers/{workerWID}/validTimeOffDates?timeOff={absenceTypeWID}&date=...`
 
-**On HCM post (approve):**
-1. Run local checks again.
-2. Call `submitLeaveUsage(...)` with dimensions and duration.
-3. Map HCM errors: `HCM_VALIDATION_ERROR`, `HCM_INSUFFICIENT_BALANCE`, `HCM_UNAVAILABLE`.
-4. If HCM returns success, store `hcmReferenceId`; refresh balance via realtime read.
-5. If HCM returns success but local post-refresh balance implies anomaly, log reconciliation alert (HCM may not have enforced rules).
+**On submit (local pending only):**
+1. Run local checks first.
+2. Attempt `GET /balances?worker={workerWID}`; fall back to local working copy + ledger when HCM read fails.
+3. Optionally run preflight reads when configured.
+4. Do **not** call `requestTimeOff`.
+5. Persist `PENDING` status and append `PENDING_RESERVATION` ledger entry.
+6. Instantiate approval steps and emit `REQUEST_SUBMITTED`.
 
-**Principle:** Fail closed locally; treat HCM errors as confirmation, not as the sole safety net.
+**On approve (final step):**
+1. Record approval decision locally.
+2. Retry HCM balance read; re-validate available balance.
+3. Optionally run preflight reads.
+4. Call `POST /workers/{workerWID}/requestTimeOff` with `multipart/form-data` (`jsonData` part), `businessProcessParameters.action.id` = Submitted WID (API requirement for posting accounting entry; approval already occurred locally).
+5. On success: status → `APPROVED`; persist `hcmReferenceId`, `hcmPostedAt`; convert pending reservation to `CONFIRMED_USAGE`; refresh balance from HCM when returned; emit `REQUEST_APPROVED`.
+6. On HCM unavailability: status → `APPROVED_PENDING_HCM_UPDATE`; persist retry metadata; emit `APPROVAL_PENDING_HCM_UPDATE`; defer to hourly retry job.
+7. On HCM validation error: leave request in `PENDING` (or defined compensating flow); map Workday error codes (see §10.4).
+
+**On reject:**
+1. Status → `REJECTED`; append `RESERVATION_RELEASE` ledger entry.
+2. Do **not** call HCM.
+3. Emit `REQUEST_REJECTED`.
+
+**On cancel of pending or `approved_pending_hcm_update`:**
+1. Status → `CANCELLED`; stop retry processing if applicable.
+2. Append `RESERVATION_RELEASE`; do **not** call HCM.
+
+**On cancel of approved entry (`hcmReferenceId` present):**
+1. Call `POST /workers/{workerWID}/correctTimeOffEntry` with `days[].correctedEntry.id` and `days[].delete=true`.
+2. On success: status → `CANCELLED`; append `USAGE_REVERSAL` ledger entry to invert approved usage.
+3. Emit `REQUEST_CANCELLED`.
+
+**Principle:** Fail closed locally; HCM realtime validation at approve is supplementary. Nightly sync and optional `timeOffDetails` reads must not drive local approval workflow state.
 
 ### 6.2 Leave Request Lifecycle
 
-Employees request time off through the microservice API. Leave request **workflow** is created, submitted, approved, and cancelled here—not in HCM. Validation uses synced HCM employment and time-off data (active status, eligibility, available balance). On final approval, usage is **posted to HCM** and balances are refreshed via sync.
+Employees request time off through the microservice API. Leave request and **approval workflow** are owned exclusively by the microservice. HCM holds employee and balance master data and receives accounting writes after local approval; it does not route or decide approvals. Nightly sync does not import HCM approval workflow state.
+
+On **submit**, the service validates locally, reads HCM balance when reachable (falls back to local working copy + ledger), and creates `PENDING` with a pending reservation—**no HCM write**. On **approve**, the service records the decision, posts to HCM via `requestTimeOff`, and moves to `APPROVED` on success—or `APPROVED_PENDING_HCM_UPDATE` when HCM is unavailable. On **reject**, local state only. On **cancel of approved**, call `correctTimeOffEntry` with `delete=true` and invert ledger usage.
 
 ```mermaid
 stateDiagram-v2
   [*] --> DRAFT: create (optional)
-  DRAFT --> PENDING: submit
+  DRAFT --> PENDING: submit (local only)
   DRAFT --> CANCELLED: cancel
-  PENDING --> APPROVED: all approvals approved / auto-approve
-  PENDING --> REJECTED: any rejection
+  PENDING --> APPROVED: approve + HCM write success
+  PENDING --> APPROVED_PENDING_HCM_UPDATE: approve + HCM unavailable
+  PENDING --> REJECTED: reject
   PENDING --> CANCELLED: employee cancel
-  APPROVED --> CANCELLED: cancel (reversal rules apply)
+  APPROVED_PENDING_HCM_UPDATE --> APPROVED: hourly HCM retry success
+  APPROVED_PENDING_HCM_UPDATE --> REJECTED: retry exhausted / HCM validation failure
+  APPROVED_PENDING_HCM_UPDATE --> CANCELLED: cancel (no HCM entry yet)
+  APPROVED --> CANCELLED: cancel (HCM correct/delete)
   REJECTED --> [*]
   CANCELLED --> [*]
   APPROVED --> [*]
@@ -621,7 +652,7 @@ stateDiagram-v2
 | Leave type exists and active | `LEAVE_TYPE_NOT_FOUND` |
 | Employee eligible per policy engine | `NOT_ELIGIBLE` |
 | `startDate <= endDate` | `INVALID_DATE_RANGE` |
-| No overlap with existing PENDING/APPROVED requests | `OVERLAPPING_REQUEST` |
+| No overlap with existing PENDING/APPROVED/APPROVED_PENDING_HCM_UPDATE requests | `OVERLAPPING_REQUEST` |
 | Sufficient balance if policy disallows negative | `INSUFFICIENT_BALANCE` |
 | Dimensions match a known HCM balance row | `INVALID_TIME_OFF_DIMENSIONS` |
 | Documentation provided when required | `DOCUMENTATION_REQUIRED` |
@@ -632,33 +663,47 @@ stateDiagram-v2
 - Partial day: AM/PM = 0.5 day; HOURS = hours / standard day length from policy config (default 8).
 
 **On submit (`PENDING`):**
-1. Resolve filing dimensions (from request payload and/or employee mirror, e.g. `locationId`).
-2. Run defensive validation (§6.1b); optionally realtime pre-check if mirror stale.
-3. Compute `durationDays` and persist on the leave request.
-4. Reserve pending balance overlay on the matching dimensional balance row.
-5. Instantiate approval steps from policy engine (synced HCM rules).
-6. Emit `REQUEST_SUBMITTED` notification.
-7. Audit `LEAVE_REQUEST_CREATED`.
+1. Resolve filing dimensions from request payload (required when HCM needs them).
+2. Run defensive validation (§6.1b).
+3. Compute `durationDays` and persist.
+4. Attempt HCM balance read; fall back to local working copy + ledger on failure.
+5. Optionally run Workday preflight reads when configured.
+6. Do **not** call `requestTimeOff`.
+7. Append `PENDING_RESERVATION` ledger entry.
+8. Instantiate approval steps from policy engine.
+9. Emit `REQUEST_SUBMITTED` notification (email from nightly snapshot).
+10. Audit `LEAVE_REQUEST_CREATED`.
 
 **On approve (final step):**
-1. Run defensive validation again; realtime pre-check if configured and mirror stale.
-2. Move status → `APPROVED`.
-3. Post approved leave usage to HCM realtime API with dimensions (`hcmClient.submitLeaveUsage(...)`).
-4. Handle HCM errors; on success store `hcmReferenceId` and `hcmPostedAt`.
-5. Realtime refresh of affected dimensional balance; release local `pendingBalance` overlay.
-6. Emit `REQUEST_APPROVED` notification.
-7. Audit approval and HCM posting.
+1. Run defensive validation (employment status, approver eligibility, refreshed balance).
+2. Record approval decision in `approvals` table.
+3. Call Workday `requestTimeOff` to post accounting entry.
+4. On HCM success: status → `APPROVED`; persist `hcmReferenceId`, `hcmPostedAt`; append `CONFIRMED_USAGE`; emit `REQUEST_APPROVED`; audit approval.
+5. On HCM unavailability: status → `APPROVED_PENDING_HCM_UPDATE`; set `hcmRetryStartedAt`, `hcmRetryDeadlineAt` (+24h), `hcmRetryCount = 0`; emit `APPROVAL_PENDING_HCM_UPDATE`; audit deferral.
+6. On HCM validation error: remain `PENDING` (or compensating flow); return mapped error to caller.
+7. Do **not** call a Workday approve REST endpoint (none exists in v5).
+
+**Hourly HCM approval retry (`approved_pending_hcm_update`):**
+1. Select requests where `hcmRetryDeadlineAt` not passed.
+2. Retry balance read + `requestTimeOff`.
+3. On success: transition to `APPROVED`; finalize ledger; emit `REQUEST_APPROVED`.
+4. On HCM unavailability: increment `hcmRetryCount`; update `lastHcmRetryAt`.
+5. On HCM validation failure: transition to `REJECTED`; release reservation; emit `REQUEST_REJECTED`.
+6. When deadline reached without success: auto-`REJECTED`; release reservation; emit `HCM_APPROVAL_SYNC_FAILED`.
 
 **On reject:**
 1. Status → `REJECTED`.
-2. Release pending balance overlay.
-3. Emit `REQUEST_REJECTED` notification.
+2. Append `RESERVATION_RELEASE` ledger entry.
+3. Do **not** call HCM.
+4. Emit `REQUEST_REJECTED` notification.
 
 **On cancel:**
 1. Status → `CANCELLED`, set `cancelledAt`.
-2. If was `APPROVED` and posted to HCM, submit cancellation/reversal to HCM and refresh balances from sync.
-3. Otherwise release pending overlay as applicable.
+2. If `APPROVED` with `hcmReferenceId`, call `correctTimeOffEntry` with `delete=true`; append `USAGE_REVERSAL`.
+3. If `PENDING` or `APPROVED_PENDING_HCM_UPDATE`, append `RESERVATION_RELEASE` only; stop retry job if applicable.
 4. Emit `REQUEST_CANCELLED` notification.
+
+**HCM entry status reads (`timeOffDetails`):** Optional post-write verification only. Must **not** be used to import or reconcile local approval workflow state during nightly sync or background jobs.
 
 ### 6.3 Policy Engine (synced HCM rules)
 
@@ -730,34 +775,40 @@ Policy resolution order: most specific match wins (location + department + emplo
 
 ### 6.4 Balance Read Model
 
-Balances and ledger history are **authoritative in HCM**. The microservice exposes synced data plus a local pending overlay.
+HCM final balances live in the nightly working copy (`leave_balances.currentBalance`). The **local balance ledger** is the source for workflow-derived balances, pending reservations, and reconciliation.
 
 **Computed values:**
 
 | Metric | Formula |
 |---|---|
-| `currentBalance` | Synced from HCM (`leave_balances.currentBalance` for matching dimensions) |
-| `pendingBalance` | Local overlay on same dimensional row: sum of PENDING request durations |
-| `projectedBalance` | `currentBalance - pendingBalance` |
-| `availableBalance` | `projectedBalance` adjusted by synced HCM policy rules (max/negative) |
+| `ledgerBalance` | Sum of local `leave_balance_ledger` entries for employee + leave type + dimensions |
+| `pendingBalance` | Sum of `PENDING_RESERVATION` minus released amounts for in-flight requests |
+| `currentBalance` | HCM final balance from `leave_balances` (nightly sync / realtime refresh) |
+| `availableBalance` | `ledgerBalance - pendingBalance`, adjusted by synced policy rules (max/negative) |
 
-**On approval:** Post usage to HCM realtime API with dimensions; refresh dimensional row via realtime read. Update local `pendingBalance` overlay only.
+After nightly sync, `ledgerBalance` must equal HCM `currentBalance` for each key (via sync adjustments when external HCM activity occurred).
 
-**External HCM changes:** Batch sync or realtime read may increase/decrease `currentBalance` without microservice action; display updated value and re-evaluate pending requests only on new submit/approve paths (do not auto-cancel workflows unless configured).
+**Balance ledger API** (`GET .../balance-ledger`) returns the microservice-owned workflow and reconciliation ledger—not authoritative HCM accounting history.
 
-**Manual adjustments:** Not supported via microservice API. Performed in HCM and reflected via batch or realtime sync.
+**External HCM changes:** Nightly sync appends `SYNC_ADJUSTMENT` when HCM final balance diverges from ledger without a matching workflow event.
+
+**Manual adjustments:** Not supported via microservice API. Performed in HCM; reflected via nightly sync adjustment entries.
 
 ### 6.5 Approval Engine
 
-1. Resolve policy for request's employee + leave type.
-2. Build approval chain:
-   - Level 1: employee's `managerId` from local mirror.
-   - Higher levels: HR approvers (configured role mapping) or additional managers per policy.
-3. Auto-approve if policy matches (skip approval records or mark instant APPROVED).
-4. Multi-step: level N must be APPROVED before level N+1 becomes actionable.
-5. Any REJECTED at any level → request REJECTED.
+The microservice is the **only** source of approval workflow. HCM does not participate in routing or decision capture for requests submitted through this service.
 
-**Overdue:** Approval pending > 48 business hours triggers `APPROVAL_OVERDUE` notification (cron job).
+1. Resolve policy for request's employee + leave type from nightly working copy.
+2. Build approval chain:
+   - Level 1: employee's `managerId` from nightly snapshot.
+   - Higher levels: HR approvers or additional managers per synced policy rules.
+3. Reject approvers who are inactive, terminated, or missing from snapshot.
+4. Auto-approve if policy matches.
+5. Multi-step: level N must be APPROVED before level N+1 becomes actionable.
+6. Any REJECTED at any level → request REJECTED.
+7. Requests in `APPROVED_PENDING_HCM_UPDATE` are not eligible for manual re-approval; they wait for hourly HCM retry or auto-reject.
+
+**Overdue:** Approval pending > 48 business hours triggers `APPROVAL_OVERDUE` notification (cron job). Recipient email from nightly snapshot only—no per-send HCM employment lookup.
 
 ---
 
@@ -782,9 +833,8 @@ Algorithm: HS256 (dev); support RS256 in production via config without API contr
 | GET own employee | ✓ | ✓ | ✓ | ✓ | — |
 | GET direct/indirect reports | — | ✓ | ✓ | ✓ | — |
 | GET all employees | — | — | ✓ | ✓ | — |
-| POST sync (batch/single) | — | — | — | ✓ | ✓ |
-| GET sync status | — | — | ✓ | ✓ | ✓ |
-| POST time-off sync | — | — | — | ✓ | ✓ |
+| GET sync status / sync-runs | — | — | ✓ | ✓ | ✓ |
+| POST nightly HCM sync trigger | — | — | — | ✓ | ✓ |
 | GET leave types/policies | ✓ | ✓ | ✓ | ✓ | — |
 | POST leave request (self) | ✓ | ✓ | ✓ | ✓ | — |
 | POST leave request (others) | — | — | ✓ | ✓ | — |
@@ -821,11 +871,12 @@ Authorization enforced via Fastify `preHandler` guards before service calls.
 
 | JSON:API `type` | DB Entity | ID Format |
 |---|---|---|
-| `employees` | Employee | UUID |
+| `employees` | EmployeeHcmMapping | UUID |
+| `sync-runs` | SyncRun | UUID |
 | `leave-requests` | LeaveRequest | UUID |
 | `leave-types` | LeaveType | UUID |
 | `leave-balances` | LeaveBalance | UUID |
-| `leave-balance-ledger-entries` | LeaveBalanceLedger | UUID |
+| `leave-balance-ledger-entries` | LeaveBalanceLedger (workflow ledger) | UUID |
 | `approvals` | Approval | UUID |
 | `policies` | LeavePolicy | UUID |
 | `audit-logs` | AuditLog | UUID |
@@ -841,35 +892,34 @@ Attribute names in JSON:API responses use **camelCase**.
 | GET | `/health/live` | Process alive |
 | GET | `/health/ready` | DB + critical deps reachable |
 
-#### Employees
+#### Employees (minimal snapshot)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/v1/employees` | hr_admin+ | List employees (paginated, filterable) |
-| GET | `/api/v1/employees/{id}` | self/manager/hr+ | Get employee |
-| POST | `/api/v1/employees/{id}/sync` | system_admin, integration_client | Sync single employee |
+| GET | `/api/v1/employees/{id}` | self/manager/hr+ | Get employee HCM mapping (no name/phone stored) |
 
-**GET /employees query filters:** `filter[department]`, `filter[location]`, `filter[employmentStatus]`, `filter[managerId]`
+Leave requests MUST reference internal `employeeId`. HCM employee IDs are accepted only in privileged HR-admin or integration flows and must be resolved before persist.
 
 #### Sync
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/v1/sync/employees` | system_admin, integration_client | Trigger employment batch sync |
-| POST | `/api/v1/sync/time-off` | system_admin, integration_client | Trigger time-off data batch sync |
-| GET | `/api/v1/sync/status` | hr_admin+ | Last employment and time-off sync metadata |
+| POST | `/api/v1/sync/time-off` | system_admin, integration_client | Trigger nightly HCM batch sync (bootstrap or manual) |
+| GET | `/api/v1/sync/status` | hr_admin+ | Last sync metadata, staleness, counts |
+| GET | `/api/v1/sync-runs` | hr_admin+ | Paginated sync run history |
+| GET | `/api/v1/sync-runs/{id}` | hr_admin+ | Single sync run detail |
 
-#### Leave Types (read-only; synced from HCM)
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/v1/leave-types` | authenticated | List active leave types from HCM mirror |
-
-#### Policies (read-only; synced from HCM)
+#### Leave Types (read-only; nightly working copy)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/v1/policies` | hr_admin+ | List policies from HCM mirror |
+| GET | `/api/v1/leave-types` | authenticated | List active leave types |
+
+#### Policies (read-only; nightly working copy)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/policies` | hr_admin+ | List policies |
 
 #### Leave Requests
 
@@ -904,7 +954,7 @@ Primary **employee-facing** endpoints for requesting time off. All leave request
 }
 ```
 
-**List filters:** `filter[status]`, `filter[employeeId]`, `filter[leaveTypeId]`, `filter[startDate]`, `filter[endDate]`
+**List filters:** `filter[status]` (`draft`, `pending`, `approved_pending_hcm_update`, `approved`, `rejected`, `cancelled`), `filter[employeeId]`, `filter[leaveTypeId]`, `filter[startDate]`, `filter[endDate]`
 
 #### Approvals
 
@@ -926,14 +976,16 @@ Primary **employee-facing** endpoints for requesting time off. All leave request
 }
 ```
 
-#### Balances (read-only from HCM mirror + local pending overlay)
+#### Balances (HCM working copy + local ledger overlay)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/v1/employees/{id}/balances` | scoped | Current balances by leave type |
-| GET | `/api/v1/employees/{id}/balance-ledger` | scoped | Ledger entries from HCM mirror (paginated) |
+| GET | `/api/v1/employees/{id}/balance-ledger` | scoped | Microservice workflow + reconciliation ledger (paginated) |
 
-**Balance response attributes:** `currentBalance`, `pendingBalance`, `projectedBalance`, `availableBalance`, `lastSyncedAt`, `unit` (`days`)
+**Balance response attributes:** `currentBalance` (HCM final), `ledgerBalance`, `pendingBalance`, `availableBalance`, `lastSyncedAt`, `unit` (`days` | `hours`)
+
+**Balance ledger response:** workflow and reconciliation entries with `entryType`, `source`, `amount`, `effectiveAt`, optional `leaveRequestId`, `syncRunId`
 
 #### Reports
 
@@ -1000,13 +1052,16 @@ Reports return JSON:API collection documents with `meta.summary` for aggregates.
 
 | Code | HTTP | Description |
 |---|---|---|
-| `UNAUTHORIZED` | 401 | Invalid or expired token |
+| `AUTHENTICATION_REQUIRED` | 401 | Missing or invalid JWT |
 | `FORBIDDEN` | 403 | Role insufficient |
+| `EMPLOYEE_NOT_FOUND` | 404 | No local mapping for employee (e.g. before nightly sync) |
 | `NOT_FOUND` | 404 | Resource missing |
 | `VALIDATION_ERROR` | 422 | Schema/field validation |
 | `EMPLOYEE_INACTIVE` | 422 | Employee not active |
 | `LEAVE_TYPE_NOT_FOUND` | 422 | Invalid leave type |
 | `NOT_ELIGIBLE` | 422 | Policy eligibility failed |
+| `POLICY_VIOLATION` | 422 | Workday/local policy rule violation |
+| `APPROVER_NOT_FOUND` | 422 | Manager/approver missing or inactive in snapshot |
 | `INVALID_DATE_RANGE` | 422 | startDate > endDate |
 | `OVERLAPPING_REQUEST` | 422 | Conflicting request exists |
 | `INSUFFICIENT_BALANCE` | 422 | Balance too low (local defensive check) |
@@ -1015,7 +1070,7 @@ Reports return JSON:API collection documents with `meta.summary` for aggregates.
 | `HCM_INSUFFICIENT_BALANCE` | 422 | HCM rejected filing for insufficient balance |
 | `DOCUMENTATION_REQUIRED` | 422 | Missing required docs |
 | `INVALID_LEAVE_DAY` | 422 | Non-business day not allowed |
-| `INVALID_STATE_TRANSITION` | 422 | e.g. approve cancelled request |
+| `INVALID_WORKFLOW_TRANSITION` | 422 | e.g. approve cancelled request; Workday A1051 already canceled |
 | `APPROVAL_NOT_PENDING` | 422 | No pending approval for actor |
 | `HCM_UNAVAILABLE` | 503 | HCM integration failure |
 | `SYNC_IN_PROGRESS` | 409 | Concurrent sync blocked |
@@ -1026,153 +1081,99 @@ Reports return JSON:API collection documents with `meta.summary` for aggregates.
 
 | Job | Schedule | Responsibility |
 |---|---|---|
-| `employee-sync` | `CRON_EMPLOYEE_SYNC` | Incremental HCM employment sync |
-| `time-off-sync` | `CRON_TIME_OFF_SYNC` | HCM **batch** corpus sync (types, policies, balances with dimensions, ledger) |
-| `approval-reminder` | `CRON_APPROVAL_REMINDER` | Notify overdue approvers |
-| `reconciliation` | `CRON_RECONCILIATION` | Compare local dimensional mirrors vs HCM batch/sampled realtime reads; detect external changes and drift |
+| `nightly-hcm-sync` | `CRON_NIGHTLY_HCM_SYNC` | Bootstrap + nightly aggregate Workday batch sync; employee snapshot; time-off master data; ledger reconciliation adjustments. **Does not** import HCM approval workflow. |
+| `approval-reminder` | `CRON_APPROVAL_REMINDER` | Notify overdue approvers (email from snapshot) |
+| `hcm-approval-retry` | `CRON_HCM_APPROVAL_RETRY` | Retry `requestTimeOff` for `APPROVED_PENDING_HCM_UPDATE` requests hourly for up to `HCM_APPROVAL_RETRY_WINDOW_HOURS`; auto-reject on exhaustion |
 
 **Job execution requirements:**
 - Single-instance lock (DB advisory flag or `integration_events` lock row) to prevent duplicate runs.
 - Structured log: `{ job, startedAt, completedAt, status, processedCount, errorCount }`.
 - Failures increment metrics; do not crash the process.
-- Time-off sync is idempotent per external HCM record ID.
+- Nightly sync is idempotent; at most one sync adjustment per sync run and balance key.
 
 ---
 
-## 10. HCM Integration Interface
+## 10. HCM Integration Interface (Workday Absence Management v5)
 
-### 10.1 Adapter Contract
+**Base path:** `https://{tenantHostname}/absenceManagement/v5`  
+**OpenAPI reference:** `docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`  
+**Worker path param:** `{workerWID}` = local `externalEmployeeId`
+
+Domain services depend on `HcmClient`; v1 implementation is `WorkdayAdapter` hiding Workday payloads.
+
+### 10.1 Workday Endpoint Inventory
+
+| Purpose | Method | Workday endpoint |
+|---|---|---|
+| Read current balances (submit/approve) | `GET` | `/balances?worker={workerWID}&effective={yyyy-mm-dd}` |
+| Post approved time-off accounting entry | `POST` | `/workers/{workerWID}/requestTimeOff` |
+| Cancel/correct approved entry | `POST` | `/workers/{workerWID}/correctTimeOffEntry` |
+| Eligible absence types (preflight) | `GET` | `/workers/{workerWID}/eligibleAbsenceTypes` |
+| Validate dates (preflight) | `GET` | `/workers/{workerWID}/validTimeOffDates` |
+| List time-off entries (optional verify) | `GET` | `/workers/{workerWID}/timeOffDetails` |
+| Read one entry (optional verify) | `GET` | `/workers/{workerWID}/timeOffDetails/{timeOffEntryWID}` |
+
+Nightly batch aggregates paginated collection responses—there is no single batch-corpus endpoint. Nightly sync must **not** import HCM approval queues or workflow state.
+
+### 10.2 Prescribed Approval Post Flow
+
+Called at **approve** time only. Submit does **not** call Workday.
+
+1. `GET /workers/{workerWID}/eligibleAbsenceTypes` (optional)
+2. `GET /workers/{workerWID}/validTimeOffDates?timeOff={absenceTypeWID}&date=...` (optional)
+3. `GET /balances?worker={workerWID}&effective={yyyy-mm-dd}`
+4. `POST /workers/{workerWID}/requestTimeOff` — `multipart/form-data` with `jsonData` part
+
+Approval JSON must include `days[]` with `date`, `timeOffType.id`, quantity fields, and `businessProcessParameters.action.id` = Submitted WID (`d9e4223e446c11de98360015c5e6daf6` by default). This action WID is an API requirement for posting accounting entries; approval has already occurred in the microservice. On success persist time-off entry WIDs from response `days[]`.
+
+**Cancel of approved:** `correctTimeOffEntry` with `days[].correctedEntry.id` and `days[].delete=true`.
+
+**No REST approve/deny** in Absence Management v5. All approval workflow lives in the microservice. Optional `timeOffDetails` reads verify posted entries only—they must not drive local workflow state.
+
+### 10.3 Adapter Contract (summary)
 
 ```typescript
-interface HcmEmployeeRecord {
-  externalEmployeeId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  managerExternalEmployeeId?: string;
-  department?: string;
-  location?: string;
-  employmentType?: string;
-  employmentStatus: 'ACTIVE' | 'INACTIVE' | 'TERMINATED' | 'ON_LEAVE';
-  hireDate?: string;
-  terminationDate?: string;
-  updatedAt: string;
-}
-
-interface HcmLeaveType {
-  externalLeaveTypeId: string;
-  code: string;
-  name: string;
-  isPaid: boolean;
-  requiresApproval: boolean;
-  allowPartialDay: boolean;
-  isActive: boolean;
-  updatedAt: string;
-}
-
-interface HcmTimeOffDimensions {
-  locationId?: string;
-  departmentId?: string;
-  [key: string]: string | undefined;
-}
-
-interface HcmLeaveBalance {
-  externalEmployeeId: string;
-  externalLeaveTypeId: string;
-  dimensions: HcmTimeOffDimensions;
-  currentBalance: number;
-  unit: 'days' | 'hours';
-  updatedAt: string;
-}
-
-interface HcmLeaveLedgerEntry {
-  externalLedgerEntryId: string;
-  externalEmployeeId: string;
-  externalLeaveTypeId: string;
-  dimensions?: HcmTimeOffDimensions;
-  entryType: string;
-  amount: number;
-  effectiveDate: string;
-  referenceType?: string;
-  referenceId?: string;
-  updatedAt: string;
-}
-
-interface HcmLeaveUsageRequest {
-  externalEmployeeId: string;
-  externalLeaveTypeId: string;
-  dimensions: HcmTimeOffDimensions;
-  startDate: string;
-  endDate: string;
-  durationDays: number;
-  partialDayType?: string;
-  reason?: string;
-  microserviceRequestId: string;
-}
-
-interface HcmTimeOffBalanceQuery {
-  externalEmployeeId: string;
-  externalLeaveTypeId: string;
-  dimensions: HcmTimeOffDimensions;
-}
-
 interface HcmClient {
-  // Employment
-  fetchEmployees(params: { since?: string; cursor?: string }): Promise<{
-    employees: HcmEmployeeRecord[];
-    nextCursor?: string;
-  }>;
-  fetchEmployee(externalId: string): Promise<HcmEmployeeRecord>;
+  // Nightly batch aggregation
+  fetchEmployeeSnapshots(params: BatchParams): Promise<EmployeeSnapshotPage>;
+  fetchEligibleAbsenceTypes(workerWID: string): Promise<LeaveType[]>;
+  fetchBalances(workerWID: string, effectiveDate: string): Promise<BalanceRow[]>;
 
-  // Time-off — batch
-  fetchTimeOffBalanceCorpus(params: {
-    since?: string;
-    cursor?: string;
-    fullSnapshot?: boolean;
-  }): Promise<{
-    balances: HcmLeaveBalance[];
-    leaveTypes?: HcmLeaveType[];
-    nextCursor?: string;
-  }>;
-  fetchLeaveLedger(params: { since?: string; cursor?: string }): Promise<{
-    entries: HcmLeaveLedgerEntry[];
-    nextCursor?: string;
-  }>;
-  fetchPolicies(params: { since?: string; cursor?: string }): Promise<{
-    policies: unknown[];
-    nextCursor?: string;
-  }>;
-
-  // Time-off — realtime
-  getTimeOffBalance(query: HcmTimeOffBalanceQuery): Promise<HcmLeaveBalance>;
-  submitLeaveUsage(request: HcmLeaveUsageRequest): Promise<{ hcmReferenceId: string }>;
-  cancelLeaveUsage(hcmReferenceId: string): Promise<void>;
+  // Realtime — balance reads and accounting writes
+  requestTimeOff(workerWID: string, payload: RequestTimeOffPayload): Promise<RequestTimeOffResult>; // approve only
+  correctTimeOffEntry(workerWID: string, payload: CorrectTimeOffPayload): Promise<void>;
+  getTimeOffDetails(workerWID: string): Promise<TimeOffEntry[]>; // optional verify only
+  getValidTimeOffDates(workerWID: string, query: ValidDatesQuery): Promise<ValidDatesResult>;
 }
 ```
 
-Domain services depend on `HcmClient` interface only, not HTTP details.
+### 10.4 Workday Error Mapping
 
-### 10.2 HCM Error Mapping
+| Workday code | Service error |
+|---|---|
+| `A1011` insufficient balance / not eligible | `HCM_INSUFFICIENT_BALANCE` or `POLICY_VIOLATION` |
+| `A1041`, `A1026`, `A1790` worker/position not eligible | `POLICY_VIOLATION` or `EMPLOYEE_INACTIVE` |
+| `A1008`, `A1028`, `A1042` overlapping time off | `OVERLAPPING_REQUEST` |
+| `A1038`, `A1017`, `A1016`, `A1020` invalid quantity/date | `HCM_VALIDATION_ERROR` |
+| `A1051` already canceled | `INVALID_WORKFLOW_TRANSITION` |
+| HTTP 401/403 | `HCM_UNAVAILABLE` or auth failure metadata |
+| Other critical validation | `HCM_VALIDATION_ERROR` |
 
-| HCM condition | Microservice code | Notes |
-|---|---|---|
-| Invalid dimension combination | `HCM_VALIDATION_ERROR` or local `INVALID_TIME_OFF_DIMENSIONS` if caught pre-post | Prefer local rejection first |
-| Insufficient balance | `HCM_INSUFFICIENT_BALANCE` or local `INSUFFICIENT_BALANCE` | Local check required even if HCM may not reject |
-| Transient outage | `HCM_UNAVAILABLE` | Retry with backoff on post/sync |
-| Success without expected balance change | Reconciliation alert | HCM may not enforce rules consistently |
+Log Workday `error`, `errors[]`, and `code` in integration events—not in audit before/after snapshots.
 
-### 10.3 Retry Policy
+### 10.5 Retry Policy
 
 - Transient errors (5xx, network): exponential backoff, max 5 attempts.
 - Permanent errors (4xx except 429): log and skip record.
 - 429: respect `Retry-After` header.
 
-### 10.4 Webhook Support (optional phase)
+### 10.6 Webhook Support (optional phase)
 
 `POST /api/v1/integrations/hcm/webhook` (integration_client auth):
 - Validates signature header.
 - Persists raw payload to `integration_events`.
-- Processes asynchronously; returns 202 Accepted.
+- Processes asynchronously for master-data or balance refresh triggers; returns 202 Accepted.
+- Must **not** create, update, or cancel local leave-request workflow state from HCM approval payloads.
 
 ---
 
@@ -1192,11 +1193,14 @@ Domain services depend on `HcmClient` interface only, not HTTP details.
 | `http_requests_total` | counter | method, route, status |
 | `hcm_sync_total` | counter | domain, status |
 | `hcm_sync_duration_ms` | histogram | domain |
+| `hcm_approval_retry_total` | counter | outcome |
+| `approved_pending_hcm_update_count` | gauge | — |
 | `pending_approvals` | gauge | — |
 | `cron_job_total` | counter | job, status |
-| `hcm_realtime_precheck_total` | counter | outcome |
-| `external_hcm_balance_change_total` | counter | leave_type |
-| `balance_reconciliation_drift` | gauge | leave_type, dimensions_hash |
+| `workday_realtime_total` | counter | operation, outcome |
+| `sync_adjustment_total` | counter | leave_type |
+| `ledger_reconciliation_drift` | gauge | leave_type, dimensions_hash |
+| `sync_staleness_seconds` | gauge | — |
 
 ### 11.3 Health Checks
 
@@ -1213,9 +1217,9 @@ Domain services depend on `HcmClient` interface only, not HTTP details.
 | Write latency (p95) | ≤ 1 s |
 | Report latency (p95) | ≤ 5 s |
 | Availability | 99.9% |
-| HCM outage behavior | Workflow and last-synced HCM mirrors remain available locally; new HCM posting blocked until recovery |
+| HCM outage behavior | Workflow reads and last-synced balances remain available; submit/reject proceed with local fallback; approve may enter `approved_pending_hcm_update` with hourly retries; cancel-of-approved HCM writes fail safely |
 | Audit retention | Minimum 7 years (configurable) |
-| PII | Email/name stored; no SSN/payroll data |
+| PII | Email only (encrypted at rest where supported); no name/phone/SSN/payroll |
 
 ---
 
@@ -1223,70 +1227,79 @@ Domain services depend on `HcmClient` interface only, not HTTP details.
 
 ### Phase 1 — Foundation (MVP)
 - Fastify app, Prisma schema, JWT auth, JSON:API plugin
-- Employee mirror + HCM employment sync (REST pull + cron)
-- Time-off mirror via HCM **batch** corpus sync (dimensional balances)
-- Defensive local validation on submit; HCM **realtime** post on approve
-- Leave request CRUD, single-step manager approval
-- Health endpoints, audit logging
+- Minimal `employee_hcm_mappings` + nightly Workday batch sync (bootstrap + cron); master data only, no HCM approval workflow import
+- Time-off working copy (types, policies, dimensional balances)
+- Local balance ledger with pending reservations and sync adjustments
+- Defensive validation; local submit flow (no HCM write); Workday `requestTimeOff` at approve
+- Local single-step manager approval; `approved_pending_hcm_update` + hourly HCM approval retry job
+- Health endpoints, audit logging (no email in audit payloads)
 
 ### Phase 2 — Workflow Depth
-- Multi-step and HR approval
-- Auto-approval rules (from synced HCM policies)
-- Realtime pre-check when mirror stale; policy and ledger batch sync
-- Notifications (internal records)
-- Idempotency keys
-- Reports: balances, usage, pending approvals
+- Multi-step and HR approval; auto-approval from synced policies
+- Workday preflight reads at approve; `correctTimeOffEntry` cancel-of-approved path
+- Notifications including `APPROVAL_PENDING_HCM_UPDATE` and `HCM_APPROVAL_SYNC_FAILED`
+- Idempotency keys; sync-runs API
+- Reports: balances, usage, pending approvals, sync health
 
 ### Phase 3 — Operations
-- Webhook ingestion for employment and time-off updates
-- Reconciliation job (mirror vs HCM)
-- Metrics export
-- Team calendar report
+- Optional webhook early master-data reconciliation (must not drive approval workflow)
+- Metrics export; team calendar report
 - PostgreSQL migration guide
+- Complementary Workday services for employee snapshot fields (tenant-specific)
 
 ---
 
 ## 14. Testing Requirements
 
 ### 14.1 Unit Tests
-- Policy engine rule resolution against synced HCM data
-- Balance read model (current + pending overlay)
-- Approval chain construction
+- Policy engine rule resolution against nightly working copy
+- Balance read model (ledger + pending reservations + HCM snapshot)
+- Ledger reconciliation and sync-adjustment idempotency
+- Approval chain construction from nightly manager snapshot
 - Leave duration / overlap detection
 - Defensive validation and dimensional balance matching
-- External HCM balance change handling (batch refresh)
+- Workday error code mapping
 - JSON:API serializers
 
 ### 14.2 Integration Tests
-- Leave request happy path: create → approve → realtime post to HCM → dimensional balance refresh
-- Submit rejected locally for invalid dimensions and insufficient balance **before** HCM call
-- HCM post failure surfaces `HCM_VALIDATION_ERROR` / `HCM_INSUFFICIENT_BALANCE`
-- Batch corpus sync upsert for multi-dimensional balances
-- Externally originated balance change via batch sync updates mirror without corrupting pending overlay
-- Reject releases pending overlay
-- Cancel approved request reverses usage in HCM and refreshes balances
-- Employment and time-off sync upsert idempotency
+- Submit happy path: validate → local `PENDING` + pending ledger entry → no `requestTimeOff` call
+- Submit with HCM balance read failure: falls back to local working copy + ledger and still creates pending workflow
+- Approve happy path: local approve → `requestTimeOff` → `APPROVED` + `CONFIRMED_USAGE`
+- Approve with HCM unavailable: transitions to `APPROVED_PENDING_HCM_UPDATE`; hourly retry succeeds → `APPROVED`
+- Exhausted HCM approval retries: auto-`REJECTED` + `RESERVATION_RELEASE` + `HCM_APPROVAL_SYNC_FAILED` notification
+- Reject: local only; no HCM call; `RESERVATION_RELEASE`
+- Cancel approved: `correctTimeOffEntry` + `USAGE_REVERSAL`
+- Cancel pending / `approved_pending_hcm_update`: local only; no HCM call
+- Nightly sync upsert for multi-dimensional balances; sync adjustment when HCM final ≠ ledger; sync does not mutate workflow state
+- No Workday approve REST call; approval workflow sourced only from microservice
+- Bootstrap + nightly sync idempotency
+- `EMPLOYEE_NOT_FOUND` when mapping missing before sync
 - Authorization matrix spot checks per role
+- Audit logs exclude email
 - JSON:API schema validation on all public endpoints
 
-### 14.3 Acceptance Criteria (from TRD)
+### 14.3 Acceptance Criteria (from TRD v2)
 
 | # | Criterion | Verification |
 |---|---|---|
 | AC-1 | JSON:API v1.1 responses | Contract tests on all endpoints |
 | AC-2 | JWT auth on protected routes | 401/403 tests |
-| AC-3 | Employees submit/track leave via microservice | Integration test suite |
-| AC-4 | Leave lifecycle + approvals | Integration test suite |
-| AC-5 | Prisma + SQLite persistence | Migration + CRUD tests |
-| AC-6 | Idempotent auditable employment + time-off sync | Sync replay test |
-| AC-7 | Approved leave posted to HCM; balances refreshed | Integration test with mocked HCM |
-| AC-8 | Cron jobs execute employment and time-off sync | Job unit tests with mocked clock |
-| AC-9 | HCM owns employment and time-off master data | Sync overwrite test; no local accrual/adjustment APIs |
-| AC-10 | Microservice is MyCompany's workflow boundary | Leave request APIs owned here; MyCompany upstream apps consume this service, not HCM directly |
-| AC-11 | Workflow state locally owned | HCM sync does not mutate requests/approvals; pending overlay preserved |
-| AC-12 | Defensive validation before HCM post | Invalid dimensions/balance rejected locally without relying on HCM |
-| AC-13 | Batch + realtime HCM integration | Corpus sync and dimensional realtime get/post covered |
-| AC-14 | External HCM balance changes handled | Batch refresh updates mirrors; reconciliation detects drift |
+| AC-3 | Employees submit/view/cancel via microservice | Integration test suite |
+| AC-4 | Approval workflow sourced only from microservice; nightly sync does not import HCM approval state | Sync + workflow isolation tests |
+| AC-5 | Submit creates local pending state without `requestTimeOff` | Integration test with mocked Workday |
+| AC-6 | Approve uses `requestTimeOff` with Submitted action WID after local approval | Adapter contract test |
+| AC-7 | `approved_pending_hcm_update` hourly retry for 24h; auto-reject on exhaustion | Job integration test |
+| AC-8 | Reject is local-only; no HCM write | Integration test |
+| AC-9 | Cancel approved uses `correctTimeOffEntry` with `delete=true` + ledger reversal | Integration test |
+| AC-10 | Defensive validation before submit and before HCM writes; local fallback when HCM reads fail at submit | Pre-submit and outage tests |
+| AC-11 | Bootstrap + nightly batch sync (master data only) | Sync replay test |
+| AC-12 | Minimal employee snapshot only (no name/phone/hire date) | Schema + API tests |
+| AC-13 | Local balance ledger + nightly sync adjustments | Ledger reconciliation test |
+| AC-14 | Notifications use snapshot email only | Unit test; no HCM employment read at send |
+| AC-15 | HCM owns balances/accrual/policies | No local accrual APIs; sync overwrites working copy |
+| AC-16 | Workflow state locally owned | Sync does not mutate requests/approvals/ledger history |
+| AC-17 | HCM outage: submit/reject proceed locally; approve defers to retry state | Failure injection test |
+| AC-18 | Audit excludes email and sensitive HCM payloads | Audit snapshot inspection |
 
 ---
 
@@ -1295,12 +1308,13 @@ Domain services depend on `HcmClient` interface only, not HTTP details.
 | ID | Question | Default Assumption |
 |---|---|---|
 | OQ-1 | Standard work hours per location? | 8 hours/day globally unless policy overrides |
-| OQ-2 | HCM webhook signature scheme? | HMAC-SHA256 of raw body |
+| OQ-2 | Workday services for email/manager/department in nightly snapshot? | Tenant-specific; document per deployment |
 | OQ-3 | Attachment storage for documentation? | Store metadata URL only in v1; no blob storage |
 | OQ-4 | Draft requests enabled? | Yes, optional via `submit: false` |
 | OQ-5 | RS256 JWT in production? | Supported via config; HS256 for dev |
-| OQ-6 | Default filing dimensions when omitted on request? | Derive `locationId` from employee mirror |
-| OQ-7 | Auto-cancel pending requests when external sync drops available balance below reserved amount? | No in v1; surface warning only |
+| OQ-6 | `wd-warning-action: updateonwarning` on Workday warnings? | Off by default; enable only when product policy allows |
+| OQ-7 | Auto-cancel pending requests when sync adjustment drops available balance? | No in v1; surface warning only |
+| OQ-8 | HCM webhook signature scheme? | HMAC-SHA256 of raw body (optional phase) |
 
 ---
 
@@ -1313,3 +1327,5 @@ Domain services depend on `HcmClient` interface only, not HTTP details.
 | 1.2 | 2026-06-06 | HCM as source of truth for time-off master data (balances, accrual, policies); workflow remains in microservice |
 | 1.3 | 2026-06-06 | Multi-writer HCM, batch + realtime APIs, dimensional balances, defensive validation |
 | 1.4 | 2026-06-06 | Clarified MyCompany as product owner; operational behavior attributed to the microservice |
+| 1.5 | 2026-06-06 | Aligned with TRD v2: minimal employee snapshot, nightly Workday batch sync, local balance ledger, submit-on-request Workday flow, local approve/reconcile, no HCM ledger import |
+| 1.6 | 2026-06-06 | Aligned with TRD v2 workflow model: local submit without HCM write; HCM post at approve; `approved_pending_hcm_update` hourly retry; microservice-only approval workflow; no HCM approval sync in nightly batch |
