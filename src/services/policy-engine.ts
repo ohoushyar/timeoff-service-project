@@ -133,6 +133,54 @@ export function computeDurationDays(
   return new Decimal(days);
 }
 
+export function buildHcmTimeOffDays(params: {
+  startDate: Date;
+  endDate: Date;
+  durationDays: Decimal;
+  timeOffTypeId: string;
+  partialDayType: 'NONE' | 'AM' | 'PM' | 'HOURS';
+  partialDayHours: number | null;
+  holidays: HolidayEntry[];
+  location?: string;
+}): Array<{ date: string; timeOffTypeId: string; quantity: number }> {
+  const { startDate, endDate, timeOffTypeId, holidays, location } = params;
+
+  if (params.partialDayType === 'AM' || params.partialDayType === 'PM') {
+    return [
+      {
+        date: startDate.toISOString().slice(0, 10),
+        timeOffTypeId,
+        quantity: 0.5,
+      },
+    ];
+  }
+
+  if (params.partialDayType === 'HOURS') {
+    return [
+      {
+        date: startDate.toISOString().slice(0, 10),
+        timeOffTypeId,
+        quantity: params.durationDays.toNumber(),
+      },
+    ];
+  }
+
+  const days: Array<{ date: string; timeOffTypeId: string; quantity: number }> = [];
+  const cursor = new Date(startDate);
+  while (cursor <= endDate) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6 && !isHoliday(cursor, holidays, location)) {
+      days.push({
+        date: cursor.toISOString().slice(0, 10),
+        timeOffTypeId,
+        quantity: 1,
+      });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
 function isHoliday(date: Date, holidays: HolidayEntry[], location?: string): boolean {
   return holidays.some((h) => {
     if (!h.isActive) return false;

@@ -6,6 +6,7 @@ import {
   allowsNegativeBalance,
   buildApprovalChain,
   computeDurationDays,
+  buildHcmTimeOffDays,
   datesOverlap,
   type PolicyWithRules,
 } from '../../../src/services/policy-engine';
@@ -88,6 +89,68 @@ describe('policy-engine', () => {
   it('computeDurationDays AM is 0.5', () => {
     const d = new Date('2026-07-10');
     expect(computeDurationDays(d, d, 'AM', null, []).toNumber()).toBe(0.5);
+  });
+
+  it('buildHcmTimeOffDays emits one day per business day only', () => {
+    const start = new Date(2026, 6, 6); // Mon Jul 6
+    const end = new Date(2026, 6, 12); // Sun Jul 12
+    const durationDays = computeDurationDays(start, end, 'NONE', null, []);
+    const days = buildHcmTimeOffDays({
+      startDate: start,
+      endDate: end,
+      durationDays,
+      timeOffTypeId: 'leave-vacation-wid',
+      partialDayType: 'NONE',
+      partialDayHours: null,
+      holidays: [],
+    });
+
+    expect(days).toHaveLength(5);
+    expect(days.every((d) => d.quantity === 1)).toBe(true);
+    expect(days.map((d) => d.date)).toEqual([
+      '2026-07-06',
+      '2026-07-07',
+      '2026-07-08',
+      '2026-07-09',
+      '2026-07-10',
+    ]);
+    expect(days.reduce((sum, d) => sum + d.quantity, 0)).toBe(durationDays.toNumber());
+  });
+
+  it('buildHcmTimeOffDays skips holidays', () => {
+    const start = new Date(2026, 6, 6);
+    const end = new Date(2026, 6, 10);
+    const holidays = [{ date: new Date(2026, 6, 8), location: 'US-NY', isActive: true }];
+    const durationDays = computeDurationDays(start, end, 'NONE', null, holidays, 'US-NY');
+    const days = buildHcmTimeOffDays({
+      startDate: start,
+      endDate: end,
+      durationDays,
+      timeOffTypeId: 'leave-vacation-wid',
+      partialDayType: 'NONE',
+      partialDayHours: null,
+      holidays,
+      location: 'US-NY',
+    });
+
+    expect(days).toHaveLength(4);
+    expect(days.map((d) => d.date)).not.toContain('2026-07-08');
+  });
+
+  it('buildHcmTimeOffDays handles partial AM as single half day', () => {
+    const d = new Date('2026-07-10');
+    const days = buildHcmTimeOffDays({
+      startDate: d,
+      endDate: d,
+      durationDays: new Decimal(0.5),
+      timeOffTypeId: 'leave-vacation-wid',
+      partialDayType: 'AM',
+      partialDayHours: null,
+      holidays: [],
+    });
+    expect(days).toEqual([
+      { date: '2026-07-10', timeOffTypeId: 'leave-vacation-wid', quantity: 0.5 },
+    ]);
   });
 
   it('datesOverlap detects overlap', () => {

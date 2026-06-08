@@ -12,7 +12,9 @@ import { notifyEmployee } from './notification.service.js';
 import {
   resolvePolicy,
   allowsNegativeBalance,
+  buildHcmTimeOffDays,
   type PolicyWithRules,
+  type HolidayEntry,
 } from './policy-engine.js';
 
 export async function listPendingApprovals(
@@ -116,7 +118,8 @@ export async function approveLeaveRequest(
   );
   if (!sufficient) throw new AppError('INSUFFICIENT_BALANCE');
 
-  const days = buildTimeOffDays(request);
+  const holidays = await prisma.holiday.findMany({ where: { isActive: true } });
+  const days = buildRequestTimeOffDays(request, holidays);
   try {
     const result = await hcm.requestTimeOff(request.employee.externalEmployeeId, {
       days,
@@ -260,26 +263,29 @@ export async function rejectLeaveRequest(
   return updated;
 }
 
-function buildTimeOffDays(request: {
-  startDate: Date;
-  endDate: Date;
-  durationDays: { toString(): string };
-  leaveType: { externalLeaveTypeId: string };
-}): Array<{ date: string; timeOffTypeId: string; quantity: number }> {
-  const days: Array<{ date: string; timeOffTypeId: string; quantity: number }> = [];
-  const cursor = new Date(request.startDate);
-  const perDay = new Decimal(request.durationDays.toString()).div(
-    Math.max(1, Math.ceil((request.endDate.getTime() - request.startDate.getTime()) / 86400000) + 1),
-  );
-  while (cursor <= request.endDate) {
-    days.push({
-      date: cursor.toISOString().slice(0, 10),
-      timeOffTypeId: request.leaveType.externalLeaveTypeId,
-      quantity: perDay.toNumber(),
-    });
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
+function buildRequestTimeOffDays(
+  request: {
+    startDate: Date;
+    endDate: Date;
+    durationDays: { toString(): string };
+    partialDayType: 'NONE' | 'AM' | 'PM' | 'HOURS';
+    partialDayHours: number | null;
+    dimensions: unknown;
+    leaveType: { externalLeaveTypeId: string };
+  },
+  holidays: HolidayEntry[],
+): Array<{ date: string; timeOffTypeId: string; quantity: number }> {
+  const location = (request.dimensions as Record<string, unknown>).locationId as string | undefined;
+  return buildHcmTimeOffDays({
+    startDate: request.startDate,
+    endDate: request.endDate,
+    durationDays: new Decimal(request.durationDays.toString()),
+    timeOffTypeId: request.leaveType.externalLeaveTypeId,
+    partialDayType: request.partialDayType,
+    partialDayHours: request.partialDayHours,
+    holidays,
+    location,
+  });
 }
 
 export async function retryPendingHcmUpdates(
@@ -298,9 +304,10 @@ export async function retryPendingHcmUpdates(
 
   let succeeded = 0;
   let failed = 0;
+  const holidays = await prisma.holiday.findMany({ where: { isActive: true } });
 
   for (const request of pending) {
-    const days = buildTimeOffDays(request);
+    const days = buildRequestTimeOffDays(request, holidays);
     try {
       const result = await hcm.requestTimeOff(request.employee.externalEmployeeId, {
         days,
