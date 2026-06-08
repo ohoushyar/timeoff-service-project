@@ -1,0 +1,21 @@
+{
+  "data": {
+    "type": "leave-requests",
+    "attributes": {
+      "startDate": "2026-10-03",
+      "endDate": "2026-10-06",
+      "submit": true,
+      "dimensions": {
+        "locationId": "US-NY"
+      }
+    },
+    "relationships": {
+      "leaveType": {
+        "data": {
+          "type": "leave-types",
+          "id": "1c2c3b13-503f-4c46-81de-a91773ced06b"
+        }
+      }
+    }
+  }
+}
