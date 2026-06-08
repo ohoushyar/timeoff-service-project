@@ -1260,8 +1260,7 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | IT-1.18 | Cross-cutting | All protected routes return 401 without JWT and JSON:API `errors`; audit records exclude email; hourly retry job promotes `APPROVED_PENDING_HCM_UPDATE` → `APPROVED` (job test with mocked clock) |
 
 ### Phase 2 — Workflow Depth
-- Multi-step and HR approval; auto-approval from synced policies
-- Workday preflight reads at approve; `correctTimeOffEntry` cancel-of-approved path
+- `correctTimeOffEntry` cancel-of-approved path
 - Notifications including `APPROVAL_PENDING_HCM_UPDATE` and `HCM_APPROVAL_SYNC_FAILED`
 - Idempotency keys; sync-runs API
 - Reports: balances, usage, pending approvals, sync health
@@ -1279,15 +1278,15 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | IT-2.5 | `GET /api/v1/reports/audit` | 200 `hr_admin+`; export shape; no email in rows; 403 manager |
 | IT-2.6 | `Idempotency-Key` on `POST /api/v1/leave-requests` | Same key + body returns cached 201; different body with same key → 409 |
 | IT-2.7 | `Idempotency-Key` on approve/reject/sync | Replay returns identical response; no duplicate ledger/HCM side effects |
-| IT-2.8 | Multi-step approval | Level 2 not actionable until level 1 approved; HR step from policy; auto-approve skips pending approvals |
-| IT-2.9 | `POST .../approve` with preflight | Calls `eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED` |
-| IT-2.10 | `POST .../cancel` (approved) | Calls `correctTimeOffEntry` with `delete=true`; `USAGE_REVERSAL` ledger entry |
-| IT-2.11 | `APPROVED_PENDING_HCM_UPDATE` exhaustion | After 24h retries → auto-`REJECTED` + `HCM_APPROVAL_SYNC_FAILED` notification record |
-| IT-2.12 | Notifications | `REQUEST_SUBMITTED`, `REQUEST_APPROVED`, `REQUEST_REJECTED`, `APPROVAL_OVERDUE` records created with snapshot email in payload (not in audit) |
+| IT-2.8 | `POST .../cancel` (approved) | Calls `correctTimeOffEntry` with `delete=true`; `USAGE_REVERSAL` ledger entry |
+| IT-2.9 | `APPROVED_PENDING_HCM_UPDATE` exhaustion | After 24h retries → auto-`REJECTED` + `HCM_APPROVAL_SYNC_FAILED` notification record |
+| IT-2.10 | Notifications | `REQUEST_SUBMITTED`, `REQUEST_APPROVED`, `REQUEST_REJECTED`, `APPROVAL_OVERDUE` records created with snapshot email in payload (not in audit) |
 
-### Phase 3 — Operations
+### Phase 3 — Operations & Advanced Workflow
+- Multi-step and HR approval; auto-approval from synced policies
+- Workday preflight reads at approve (`eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED`)
 - Optional webhook early master-data reconciliation (must not drive approval workflow)
-- Metrics export; team calendar report
+- Metrics export
 - PostgreSQL migration guide
 - Complementary Workday services for employee snapshot fields (tenant-specific)
 
@@ -1302,6 +1301,8 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | IT-3.3 | Metrics export | `/metrics` (or configured path) exposes counters from §11.2 when enabled |
 | IT-3.4 | Stale sync visibility | Balance and sync-status responses surface `lastSyncedAt` / staleness when nightly sync aged |
 | IT-3.5 | HCM outage runbook paths | Manual `POST /api/v1/sync/time-off` recovery after outage; sync status reflects failure then success |
+| IT-3.6 | Multi-step approval | Level 2 not actionable until level 1 approved; HR step from policy; auto-approve skips pending approvals |
+| IT-3.7 | `POST .../approve` with preflight | Calls `eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED` |
 
 ---
 
@@ -1388,3 +1389,4 @@ Endpoint coverage is defined per implementation phase in **§13** (IT-1.x throug
 | 1.5 | 2026-06-06 | Aligned with TRD v2: minimal employee snapshot, nightly Workday batch sync, local balance ledger, submit-on-request Workday flow, local approve/reconcile, no HCM ledger import |
 | 1.6 | 2026-06-06 | Aligned with TRD v2 workflow model: local submit without HCM write; HCM post at approve; `approved_pending_hcm_update` hourly retry; microservice-only approval workflow; no HCM approval sync in nightly batch |
 | 1.7 | 2026-06-06 | Per-phase integration test matrices (IT-1.x–IT-3.x) covering all endpoints introduced in each phase |
+| 1.8 | 2026-06-07 | Moved multi-step/HR/auto approval and Workday preflight from Phase 2 to Phase 3 (IT-3.6, IT-3.7); renumbered Phase 2 integration tests IT-2.8–IT-2.10 |
