@@ -261,6 +261,91 @@ Requirements:
 
 Employees and authorized delegates submit leave requests through the microservice.
 
+The diagram below shows how the microservice, local persistence, and HCM interact across the primary request lifecycle. Approval routing and decisions happen only in the microservice; HCM receives accounting writes after local approval (or on cancel of an approved entry). Nightly batch sync (employee snapshot and time-off working copy) runs separately and does not drive approval workflow state.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Client App
+    participant TOS as Time Off Service
+    participant DB as Local DB / Ledger
+    participant HCM as HCM (Workday)
+    participant Job as HCM Retry Job (hourly)
+
+    rect rgb(240, 248, 255)
+        Note over Client,HCM: Submit — local pending workflow only (no HCM write)
+        Client->>TOS: POST /api/v1/leave-requests
+        TOS->>DB: Defensive validation (snapshot, policy, dimensions, overlap)
+        opt HCM balance read reachable
+            TOS->>HCM: GET /balances?worker={workerWID}
+            HCM-->>TOS: Current balances
+        end
+        alt HCM read unavailable
+            TOS->>DB: Validate against nightly working copy + ledger
+        end
+        TOS->>DB: status=pending, PENDING_RESERVATION ledger entry
+        TOS->>DB: Audit + REQUEST_SUBMITTED notification
+        TOS-->>Client: 201 pending
+    end
+
+    rect rgb(255, 250, 240)
+        Note over Client,HCM: Approve — local decision first, then HCM accounting write
+        Client->>TOS: POST /api/v1/leave-requests/{id}/approve
+        TOS->>DB: Record approval decision + audit
+        TOS->>HCM: GET /balances?worker={workerWID} (retry)
+        opt Workday preflight enabled
+            TOS->>HCM: GET eligibleAbsenceTypes, validTimeOffDates
+        end
+        alt HCM write succeeds
+            TOS->>HCM: POST /workers/{workerWID}/requestTimeOff
+            HCM-->>TOS: timeOffEntryWID + refreshed balances
+            TOS->>DB: status=approved, CONFIRMED_USAGE, hcm_reference_id
+            TOS-->>Client: 200 approved
+        else HCM unavailable (timeout, 5xx, auth)
+            TOS->>DB: status=approved_pending_hcm_update, retry metadata
+            Note over DB: PENDING_RESERVATION retained
+            TOS->>DB: APPROVAL_PENDING_HCM_UPDATE notification
+            TOS-->>Client: 200 approved_pending_hcm_update
+            loop Hourly, up to 24h from first failed write
+                Job->>TOS: Retry approval post
+                TOS->>HCM: GET /balances + POST requestTimeOff
+                alt Retry succeeds
+                    TOS->>DB: status=approved, CONFIRMED_USAGE
+                else Deadline reached or validation failure
+                    TOS->>DB: status=rejected, RESERVATION_RELEASE
+                    TOS->>DB: HCM_APPROVAL_SYNC_FAILED notification
+                end
+            end
+        else HCM validation error at approve
+            Note over TOS: Request remains pending; map to JSON:API error
+            TOS-->>Client: 422 HCM_VALIDATION_ERROR / POLICY_VIOLATION
+        end
+    end
+
+    rect rgb(245, 255, 245)
+        Note over Client,HCM: Reject — microservice only (no HCM call)
+        Client->>TOS: POST /api/v1/leave-requests/{id}/reject
+        TOS->>DB: status=rejected, RESERVATION_RELEASE
+        TOS->>DB: Audit + REQUEST_REJECTED notification
+        TOS-->>Client: 200 rejected
+    end
+
+    rect rgb(255, 245, 245)
+        Note over Client,HCM: Cancel
+        Client->>TOS: POST /api/v1/leave-requests/{id}/cancel
+        alt pending or approved_pending_hcm_update
+            TOS->>DB: status=cancelled, RESERVATION_RELEASE
+            Note over TOS,HCM: No HCM entry exists yet — no HCM call
+            TOS-->>Client: 200 cancelled
+        else approved (HCM entry posted)
+            TOS->>HCM: POST correctTimeOffEntry (delete=true)
+            HCM-->>TOS: Correction accepted
+            TOS->>DB: status=cancelled, USAGE_REVERSAL ledger entry
+            TOS-->>Client: 200 cancelled
+        end
+    end
+```
+
 Each request must support:
 
 - Requesting employee.
