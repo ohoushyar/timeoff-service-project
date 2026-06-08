@@ -1091,3 +1091,246 @@ The implementation is acceptable when:
 - Nightly sync is idempotent, auditable, observable, and manually triggerable by authorized operators.
 - HCM outages do not block reads of existing workflow state or last-synced balances, and do not block local submit or reject when local validation passes. Approve may defer HCM writes into `approved_pending_hcm_update` with hourly retries for up to 24 hours; cancel-of-approved HCM writes still fail safely when HCM is unavailable unless a defined compensating flow applies.
 - Audit logs capture workflow and integration events without leaking email, credentials, or sensitive HCM payloads.
+
+---
+
+## 16. Testing Requirements
+
+This section defines the required testing scenarios for the Time Off Management Microservice. It serves three audiences:
+
+- **Engineering** — ensure automated tests cover every acceptance criterion and critical workflow path before release.
+- **QA** — optional manual and exploratory testing when validating a build, staging deployment, or HCM integration change (not required for release; see §16.8).
+- **Operations** — verify sync, retry, and outage behavior in integrated environments when performing operational validation.
+
+Detailed endpoint-level test matrices (IT-1.x through IT-3.x), file locations, and implementation-phase scope live in `docs/spec.md` §13–§14. The scenarios below are derived from TRD functional requirements (§6–§12) and acceptance criteria (§15). Automated coverage is the release gate; manual checklists in §16.5–§16.7 are supplementary guidance for exploratory testing.
+
+### 16.1 Test Layers
+
+| Layer | Purpose | When to run |
+|---|---|---|
+| **Unit** | Policy engine, ledger math, serializers, error mapping, validation helpers | Every commit / CI |
+| **Integration** | End-to-end API flows with mocked or local HCM; background jobs with mocked clock | Every commit / CI |
+| **Contract** | JSON:API shape, OpenAPI alignment, stable error codes | CI and before API releases |
+| **Manual / exploratory** (optional) | Real JWT roles, HCM sandbox or mock toggles, multi-step UX paths, timing-dependent retry jobs | Staging or pre-release when QA chooses; not a release gate |
+
+Automated suites live under `tests/unit/` and `tests/integration/`. Run `npm test` for the full CI matrix.
+
+### 16.2 Scenario Traceability Matrix
+
+Each scenario maps to TRD acceptance criteria (§15), an automated test identifier where implemented, and optional manual QA ideas for staging or exploratory testing.
+
+| ID | Scenario | AC | Automated | Optional manual QA |
+|---|---|---|---|---|
+| TS-01 | All public endpoints return JSON:API v1.1 documents (`jsonapi`, `data`/`errors`, `meta`, pagination where applicable) | §15 bullet 1 | IT-1.18; unit serializers | Spot-check 3–5 endpoints via API client |
+| TS-02 | Protected routes reject unauthenticated requests with 401 and JSON:API `errors` | §15 bullet 2 | IT-1.6, IT-1.18 | Attempt each major resource without JWT |
+| TS-03 | Role-based authorization: employee, manager, HR, system admin, integration client | §15 bullet 3 | IT-1.3–1.5, IT-1.8–1.17, IT-2.3–2.5 | Matrix walkthrough per role (§16.6) |
+| TS-04 | Employee submits leave request → `pending` + pending reservation; no HCM write at submit | §15 bullets 4, 7 | IT-1.8 | Submit in staging; confirm no Workday entry until approve |
+| TS-05 | Submit with HCM balance read failure falls back to local working copy + ledger | §15 bullets 6, 18 | IT-1.8 (HCM down) | Disable/mock HCM reads; submit should still succeed when local balance sufficient |
+| TS-06 | Defensive validation: insufficient balance, overlap, invalid dimensions, inactive employee | §15 bullet 11 | IT-1.8; unit policy-engine | Submit invalid combinations; confirm stable error codes |
+| TS-07 | Draft request lifecycle: create draft, patch, then submit | §15 bullet 4 | IT-1.8, IT-1.11 | Save draft, edit dates/reason, submit |
+| TS-08 | Manager approves → HCM `requestTimeOff` → `approved` + confirmed ledger usage | §15 bullets 4, 8 | IT-1.14 | Approve in staging; verify Workday entry WID persisted |
+| TS-09 | Approve with HCM unavailable → `approved_pending_hcm_update`; hourly retry succeeds → `approved` | §15 bullets 9, 18 | IT-1.14, IT-1.18, §14.2 retry | Simulate HCM 503 at approve; wait/trigger retry job; confirm promotion |
+| TS-10 | Exhausted HCM approval retries (24 h) → auto-`rejected` + reservation release + failure notification | §15 bullet 9 | IT-2.9, §14.2 exhaustion | Advance clock or wait in test env; confirm auto-reject and notification |
+| TS-11 | Manager rejects → local `rejected` only; reservation released; no HCM call | §15 bullet 10 | IT-1.15 | Reject pending request; confirm no Workday write |
+| TS-12 | Cancel `pending` → `cancelled` + reservation release; no HCM call | §15 bullet 4 | IT-1.12 | Cancel before approval |
+| TS-13 | Cancel `approved_pending_hcm_update` → `cancelled` locally; retries stop; no HCM call | §15 bullet 18 | §14.2 (planned) | Approve into deferred state, then cancel before HCM post succeeds |
+| TS-14 | Cancel `approved` → HCM `correctTimeOffEntry` (delete) + usage reversal ledger | §15 bullet 11 | IT-2.8 | Cancel after approval; verify Workday correction and ledger reversal |
+| TS-15 | Cancel `approved` when HCM unavailable → fails safely (no partial local cancel) | §15 bullet 18 | Manual / failure injection | Block HCM; attempt cancel; confirm safe failure |
+| TS-16 | Nightly/bootstrap sync imports employee snapshot + time-off master data only | §15 bullets 12–13 | IT-1.4, IT-1.5; unit sync.service | Run sync; inspect DB for snapshot fields; confirm no approval state import |
+| TS-17 | Sync does not mutate existing leave requests, approvals, or ledger history | §15 bullet 4 | §14.2 sync isolation | Submit request, re-run sync, confirm workflow unchanged |
+| TS-18 | Sync idempotent and manually triggerable by authorized operators | §15 bullet 22 | IT-1.4 | Retry sync; confirm no duplicate rows; 403 for employee |
+| TS-19 | Ledger reconciliation: sync adjustment when HCM final balance ≠ ledger-derived balance | §15 bullet 21 | unit ledger.service | After external HCM balance change simulation, run sync; inspect adjustment entries |
+| TS-20 | Balance read model: current, ledger, pending, available, `lastSyncedAt`, unit | §15 bullet 20 | IT-1.16 | Compare balances before/after submit and approve |
+| TS-21 | Balance ledger paginated workflow entries (reservations, usage, releases) | §15 bullet 20 | IT-1.17 | Trace one request through ledger entries |
+| TS-22 | Employee snapshot minimal: no name, phone, or hire date in API | §15 bullets 13–14 | IT-1.3 | Inspect employee resource attributes |
+| TS-23 | Notifications use nightly-synced snapshot email only; not in audit payloads | §15 bullets 15, 23 | IT-2.10; unit notification, audit | Inspect notification records vs audit after workflow action |
+| TS-24 | Idempotency keys on write endpoints prevent duplicate side effects | §11.3 | IT-2.6, IT-2.7 | Replay same `Idempotency-Key`; confirm 409 on body mismatch |
+| TS-25 | Reports: leave usage, team calendar, audit export with auth and no email in audit rows | §6.9 | IT-2.3–2.5 | HR/manager report queries with date filters |
+| TS-26 | Sync runs history and detail for operators | §12 | IT-2.1, IT-2.2 | List sync runs; open run detail with correlation ID |
+| TS-27 | Health: liveness without auth; readiness reflects DB (and optional sync staleness) | §11.6 | IT-1.1, IT-1.2 | Hit `/health/live` and `/health/ready` |
+| TS-28 | HCM outage: reads and last-synced balances remain available | §15 bullet 23 | Partial (mock) | Stop HCM; GET balances and leave-requests still 200 |
+| TS-29 | `EMPLOYEE_NOT_FOUND` when worker not yet synced | §14 risks | §14.2 cross-cutting | Submit before employee appears in snapshot |
+| TS-30 | Multi-step / HR / auto-approval routing from synced policy | §6.7 | IT-3.6 (Phase 3) | Policy with 2-step chain; verify level gating |
+| TS-31 | Workday preflight reads at approve when enabled | §6.5 | IT-3.7 (Phase 3) | Enable `WORKDAY_PREFLIGHT_ENABLED`; approve and inspect HCM call log |
+| TS-32 | HCM webhook triggers master-data refresh only (no approval mutation) | §7.1 | IT-3.1–3.2 (Phase 3) | Send webhook; confirm balances refresh, requests unchanged |
+| TS-33 | Metrics and staleness visibility in operational responses | §11.6 | IT-3.2–3.4 (Phase 3) | Inspect `/metrics` and sync-status staleness fields |
+
+**Coverage legend:** *Automated* references map to `docs/spec.md` IT- IDs and `tests/` suites and are the release gate. *Optional manual QA* suggestions help exploratory testing but are not required to ship. Scenarios marked *Phase 3* or *planned* remain gated on automated tests landing or explicit product waiver.
+
+### 16.3 End-to-End Workflow Scenarios
+
+These multi-step flows span several endpoints and must pass in CI. They can also be used as optional manual walkthrough scripts in staging (§16.5).
+
+#### WF-1 — Happy path: submit → approve → view balances
+
+1. Authenticate as **employee**; `GET /employees/{id}/balances` — note `availableBalance`.
+2. `POST /leave-requests` with `submit: true` — expect `201`, status `pending`, ledger `PENDING_RESERVATION`.
+3. Authenticate as **manager**; `GET /approvals/pending` — request appears.
+4. `POST /leave-requests/{id}/approve` — expect `approved`, HCM reference ID, ledger `CONFIRMED_USAGE`.
+5. As employee, `GET /balances` — `pendingBalance` decreased, usage reflected.
+6. **Verify:** no Workday call occurred at step 2; Workday `requestTimeOff` at step 4.
+
+#### WF-2 — Submit with HCM read degradation
+
+1. Configure HCM mock or sandbox to fail balance reads (503/timeout).
+2. Submit request with sufficient **local** balance.
+3. **Expect:** `pending` created; validation used local working copy.
+4. Restore HCM; approve normally.
+
+#### WF-3 — Approve deferred to HCM retry
+
+1. Submit and assign to manager.
+2. Configure HCM to fail on `requestTimeOff` at first approve attempt.
+3. Approve — **expect** `approved_pending_hcm_update`, notification `APPROVAL_PENDING_HCM_UPDATE`.
+4. Trigger or wait for hourly retry job with HCM restored.
+5. **Expect** transition to `approved` with HCM reference.
+
+#### WF-4 — Exhausted HCM retries
+
+1. Enter `approved_pending_hcm_update` (as WF-3).
+2. Keep HCM unavailable until retry deadline (24 h from first failure).
+3. **Expect** auto-`rejected`, `RESERVATION_RELEASE`, notification `HCM_APPROVAL_SYNC_FAILED`.
+
+#### WF-5 — Reject path
+
+1. Submit request.
+2. Manager **reject** with optional comment.
+3. **Expect** `rejected`, reservation released, no HCM calls, `REQUEST_REJECTED` notification.
+
+#### WF-6 — Cancel variants
+
+| Starting status | Action | Expected outcome | HCM call |
+|---|---|---|---|
+| `draft` | cancel or delete via patch flow | removed or cancelled locally | None |
+| `pending` | `POST .../cancel` | `cancelled`, reservation release | None |
+| `approved_pending_hcm_update` | `POST .../cancel` | `cancelled`, retries stopped, reservation release | None |
+| `approved` | `POST .../cancel` | `cancelled`, usage reversal | `correctTimeOffEntry` delete |
+
+#### WF-7 — Sync and isolation
+
+1. Bootstrap or `POST /sync/time-off` as **system_admin**.
+2. Confirm leave types, policies, balances, employee snapshot populated.
+3. Create leave request; re-run sync.
+4. **Expect** request status and approval history unchanged (TS-17).
+
+#### WF-8 — Idempotent client retries
+
+1. `POST /leave-requests` with `Idempotency-Key: k1` — note response.
+2. Repeat identical request with same key — **expect** same `201` body, single ledger entry.
+3. Same key, different body — **expect** `409 IDEMPOTENCY_CONFLICT`.
+4. Repeat for approve and sync mutations (IT-2.7).
+
+### 16.4 Unit Test Requirements
+
+The following domain logic must remain testable outside HTTP route handlers (see `tests/unit/`):
+
+- Policy rule resolution and eligibility against nightly working copy.
+- Approval chain construction from manager snapshot and policy rules.
+- Leave duration, partial-day, holiday exclusion, and overlap detection.
+- Balance read model: ledger sum + pending reservations + HCM snapshot overlay.
+- Ledger append idempotency and sync-adjustment reconciliation.
+- Workday error code → stable JSON:API error code mapping.
+- JSON:API document and pagination builders.
+- Audit snapshot redaction (no email).
+- Notification payload construction from snapshot email.
+
+### 16.5 Manual QA Checklists by Persona (Optional)
+
+These checklists support exploratory testing and are **not** required for release (§16.8). Use them when QA or operations want to validate a deployment beyond CI. Prerequisites: valid JWTs per role, HCM sandbox or `HCM_MOCK_MODE`, seeded or synced employees with manager hierarchy, at least one leave type with dimensional balance.
+
+#### Employee
+
+- [ ] View own employee record — no name/phone/hire date exposed (TS-22).
+- [ ] View leave types and own balances with freshness metadata (TS-20).
+- [ ] Create draft; patch dates/reason; submit (TS-07).
+- [ ] Submit fails with clear errors: insufficient balance, overlapping dates, bad dimensions (TS-06).
+- [ ] List and filter own requests by status (TS-03).
+- [ ] Cancel pending request; balance reservation released (TS-12).
+- [ ] Cannot view or act on another employee's requests (TS-03).
+
+#### Manager
+
+- [ ] View direct report employee record and balances (TS-03).
+- [ ] Pending approvals list shows only assigned requests (TS-03).
+- [ ] Approve request — employee sees approved; balances updated (WF-1).
+- [ ] Reject request — employee sees rejected; no HCM entry (TS-11).
+- [ ] Cannot approve/reject requests not assigned to self (TS-03).
+- [ ] Team calendar and leave usage reports for reporting chain (TS-25).
+
+#### HR Admin
+
+- [ ] View policies and org-wide leave usage / audit reports (TS-25).
+- [ ] Audit export contains workflow events **without** email fields (TS-23).
+- [ ] Cannot trigger sync unless also system admin (TS-03).
+- [ ] Submit or manage requests on behalf of employees when policy allows (TS-03).
+
+#### System Admin / Integration Client
+
+- [ ] Trigger manual sync; inspect sync status and sync-runs history (TS-16, TS-26).
+- [ ] Sync is safe to run twice without duplicate master data (TS-18).
+- [ ] Integration client can sync; employee role receives 403 (TS-03).
+
+#### HCM Integration & Resilience
+
+- [ ] Submit succeeds when HCM balance read fails but local balance sufficient (TS-05, WF-2).
+- [ ] Approve enters deferred state when HCM write fails; retry promotes to approved (TS-09, WF-3).
+- [ ] Auto-reject after retry exhaustion (TS-10, WF-4).
+- [ ] Cancel approved posts HCM correction (TS-14, WF-6).
+- [ ] Cancel approved blocked or fails safely when HCM down (TS-15).
+- [ ] Reads (balances, requests) work during HCM outage using last snapshot (TS-28).
+
+#### Security & Compliance
+
+- [ ] All protected routes return 401 without JWT (TS-02).
+- [ ] Audit logs and report exports exclude email and HCM credentials (TS-23).
+- [ ] Error responses use stable `code` values from §8.7 (TS-01, TS-06).
+
+### 16.6 Authorization Spot-Check Matrix (Optional)
+
+When running manual exploratory tests, QA may confirm at least one **allow** and one **deny** case per role for each resource group:
+
+| Resource | Employee (self) | Employee (other) | Manager (report) | Manager (non-report) | HR Admin | System Admin |
+|---|---|---|---|---|---|---|
+| `GET /employees/{id}` | 200 | 403 | 200 | 403 | 200 | 200 |
+| `GET /leave-requests` | own only | 403/empty | team | 403/empty | broader | broader |
+| `POST /leave-requests` | 201 self | 403 | 403 unless delegated | 403 | per policy | per policy |
+| `POST .../approve` | 403 | 403 | 200 if assigned | 403 | per policy | 403 |
+| `GET /policies` | 403 | 403 | 403 | 403 | 200 | 200 |
+| `POST /sync/time-off` | 403 | 403 | 403 | 403 | 403 | 200 |
+| `GET /reports/audit` | 403 | 403 | 403 | 403 | 200 | 200 |
+
+Automated coverage: IT-1.3–1.5, IT-1.8–1.17, IT-2.3–2.5, IT-1.18.
+
+### 16.7 Exploratory Testing Ideas (Optional)
+
+Beyond checklist execution, QA may probe:
+
+- **Concurrency:** two managers attempting approve/reject on the same pending request.
+- **Stale manager:** employee synced with outdated manager ID; approval routing and notifications.
+- **Stale balance:** submit against local balance, external HCM writer reduces balance before approve.
+- **Partial days and holidays:** half-day AM/PM, requests spanning weekends and holidays.
+- **Dimensional filing:** wrong or missing dimension keys vs HCM balance rows.
+- **Pagination boundaries:** empty collections, last page, invalid page params.
+- **Clock skew:** requests starting in the past or far future; timezone boundaries on dates.
+- **Large payloads:** long reason text, maximum date ranges.
+- **Correlation IDs:** present in responses and traceable in logs for a failed approve.
+- **Phase 3 (when enabled):** multi-step approval order, auto-approve rules, webhook duplicate delivery, preflight validation failures.
+
+### 16.8 Release Gate
+
+A release candidate is test-complete when:
+
+1. All **Phase 1 and Phase 2** automated scenarios (TS-01 through TS-29, excluding Phase 3-only rows) pass in CI.
+2. Every §15 acceptance criterion has at least one passing **automated** verification (unit, integration, or contract tests).
+3. Known gaps (Phase 3 scenarios TS-30 through TS-33) are explicitly waived or scheduled with product sign-off.
+
+Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended for major HCM or auth changes but are **not** release blockers. Implementation partners should update the *Automated* column in §16.2 when new tests land.
+
+---
+
+## 17. Document History
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.0 | 2026-06-08 | Added §16 Testing Requirements: scenario traceability matrix, workflow scenarios, manual QA checklists, authorization matrix, and release gate |
+| 1.1 | 2026-06-08 | Clarified manual QA checklists are optional guidance; release gate is automated tests only |
