@@ -75,6 +75,50 @@ export async function appendLedgerEntry(
   }
 }
 
+export interface ConvertReservationParams {
+  employeeId: string;
+  leaveTypeId: string;
+  dimensions: Record<string, unknown>;
+  leaveRequestId: string;
+  approvalId?: string;
+  durationDays: Decimal;
+  hcmReferenceId?: string;
+  usageEffectiveAt: Date;
+}
+
+/** Release pending reservation and record confirmed usage (spec: convert on approve). */
+export async function convertPendingReservationToConfirmedUsage(
+  prisma: PrismaClient,
+  params: ConvertReservationParams,
+) {
+  await appendLedgerEntry(prisma, {
+    employeeId: params.employeeId,
+    leaveTypeId: params.leaveTypeId,
+    dimensions: params.dimensions,
+    entryType: 'RESERVATION_RELEASE',
+    amount: params.durationDays,
+    source: 'WORKFLOW',
+    leaveRequestId: params.leaveRequestId,
+    approvalId: params.approvalId,
+    idempotencyKey: `reservation-release:${params.leaveRequestId}:approve`,
+    effectiveAt: new Date(),
+  });
+
+  await appendLedgerEntry(prisma, {
+    employeeId: params.employeeId,
+    leaveTypeId: params.leaveTypeId,
+    dimensions: params.dimensions,
+    entryType: 'CONFIRMED_USAGE',
+    amount: params.durationDays.negated(),
+    source: 'WORKFLOW',
+    leaveRequestId: params.leaveRequestId,
+    approvalId: params.approvalId,
+    hcmReferenceId: params.hcmReferenceId,
+    idempotencyKey: `confirmed-usage:${params.leaveRequestId}`,
+    effectiveAt: params.usageEffectiveAt,
+  });
+}
+
 export async function pendingBalance(
   prisma: PrismaClient,
   employeeId: string,
@@ -83,26 +127,42 @@ export async function pendingBalance(
 ): Promise<Decimal> {
   const inFlightStatuses = ['PENDING', 'APPROVED_PENDING_HCM_UPDATE'] as const;
 
-  const reservations = await prisma.leaveBalanceLedger.findMany({
+  const inFlightRequests = await prisma.leaveRequest.findMany({
     where: {
       employeeId,
       leaveTypeId,
-      dimensionsHash: dimHash,
-      entryType: 'PENDING_RESERVATION',
-      leaveRequest: { status: { in: [...inFlightStatuses] } },
+      status: { in: [...inFlightStatuses] },
     },
-    select: { amount: true, leaveRequestId: true },
+    select: { id: true, dimensions: true },
   });
 
-  const releases = await prisma.leaveBalanceLedger.findMany({
-    where: {
-      employeeId,
-      leaveTypeId,
-      dimensionsHash: dimHash,
-      entryType: 'RESERVATION_RELEASE',
-    },
-    select: { amount: true, leaveRequestId: true },
-  });
+  const inFlightIds = inFlightRequests
+    .filter((r) => dimensionsHash(r.dimensions as Record<string, unknown>) === dimHash)
+    .map((r) => r.id);
+  if (inFlightIds.length === 0) return new Decimal(0);
+
+  const [reservations, releases] = await Promise.all([
+    prisma.leaveBalanceLedger.findMany({
+      where: {
+        employeeId,
+        leaveTypeId,
+        dimensionsHash: dimHash,
+        entryType: 'PENDING_RESERVATION',
+        leaveRequestId: { in: inFlightIds },
+      },
+      select: { amount: true },
+    }),
+    prisma.leaveBalanceLedger.findMany({
+      where: {
+        employeeId,
+        leaveTypeId,
+        dimensionsHash: dimHash,
+        entryType: 'RESERVATION_RELEASE',
+        leaveRequestId: { in: inFlightIds },
+      },
+      select: { amount: true },
+    }),
+  ]);
 
   const reserved = reservations.reduce((s, r) => s.plus(r.amount.toString()), new Decimal(0));
   const released = releases.reduce((s, r) => s.plus(r.amount.toString()), new Decimal(0));

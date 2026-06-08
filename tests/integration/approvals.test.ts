@@ -101,6 +101,33 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
       where: { leaveRequestId: requestId, entryType: 'CONFIRMED_USAGE' },
     });
     expect(usage).toBeTruthy();
+
+    const release = await ctx.prisma.leaveBalanceLedger.findFirst({
+      where: { leaveRequestId: requestId, entryType: 'RESERVATION_RELEASE' },
+    });
+    expect(release).toBeTruthy();
+
+    const approved = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const usedDays = Number(approved.durationDays);
+
+    const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
+    const balanceRes = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/v1/employees/${ctx.aliceId}/balances`,
+      headers: authHeaders(aliceToken, ''),
+    });
+    expect(balanceRes.statusCode).toBe(200);
+
+    const vacation = balanceRes.json().data.find(
+      (b: { relationships: { leaveType: { data: { id: string } } } }) =>
+        b.relationships.leaveType.data.id === ctx.leaveTypeId,
+    );
+    expect(vacation.attributes).toMatchObject({
+      currentBalance: 10,
+      ledgerBalance: 10 - usedDays,
+      pendingBalance: 0,
+      availableBalance: 10 - usedDays,
+    });
   });
 
   it('returns APPROVED_PENDING_HCM_UPDATE when HCM is down', async () => {

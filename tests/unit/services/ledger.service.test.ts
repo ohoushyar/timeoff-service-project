@@ -48,6 +48,48 @@ describe('ledger.service', () => {
     expect(sum.toNumber()).toBe(10);
   });
 
+  it('pendingBalance ignores releases for terminal requests', async () => {
+    const dims = { locationId: 'US-NY' };
+    const hash = dimensionsHash(dims);
+    const request = await prisma.leaveRequest.create({
+      data: {
+        employeeId,
+        leaveTypeId,
+        startDate: new Date('2031-01-01'),
+        endDate: new Date('2031-01-02'),
+        durationDays: 2,
+        dimensions: dims,
+        status: 'CANCELLED',
+      },
+    });
+
+    await appendLedgerEntry(prisma, {
+      employeeId,
+      leaveTypeId,
+      dimensions: dims,
+      entryType: 'PENDING_RESERVATION',
+      amount: -2,
+      source: 'WORKFLOW',
+      leaveRequestId: request.id,
+      effectiveAt: new Date(),
+      idempotencyKey: 'pending-cancelled',
+    });
+    await appendLedgerEntry(prisma, {
+      employeeId,
+      leaveTypeId,
+      dimensions: dims,
+      entryType: 'RESERVATION_RELEASE',
+      amount: 2,
+      source: 'WORKFLOW',
+      leaveRequestId: request.id,
+      effectiveAt: new Date(),
+      idempotencyKey: 'release-cancelled',
+    });
+
+    const pending = await pendingBalance(prisma, employeeId, leaveTypeId, hash);
+    expect(pending.toNumber()).toBe(0);
+  });
+
   it('appendLedgerEntry is idempotent', async () => {
     const dims = { locationId: 'US-NY' };
     const key = 'idem-1';

@@ -5,7 +5,7 @@ import type { HcmClient } from '../integrations/hcm/types.js';
 import { HcmUnavailableError, HcmValidationError } from '../integrations/hcm/types.js';
 import { mapWorkdayErrorCode } from '../integrations/hcm/workday/error-mapping.js';
 import type { Env } from '../config/env.js';
-import { appendLedgerEntry } from './ledger.service.js';
+import { appendLedgerEntry, convertPendingReservationToConfirmedUsage } from './ledger.service.js';
 import { checkAvailableBalance } from './balance.service.js';
 import { writeAudit } from './audit.service.js';
 import { notifyEmployee } from './notification.service.js';
@@ -126,18 +126,15 @@ export async function approveLeaveRequest(
       actionWid: env.WORKDAY_SUBMITTED_ACTION_WID,
     });
 
-    await appendLedgerEntry(prisma, {
+    await convertPendingReservationToConfirmedUsage(prisma, {
       employeeId: request.employeeId,
       leaveTypeId: request.leaveTypeId,
       dimensions,
-      entryType: 'CONFIRMED_USAGE',
-      amount: durationDays.negated(),
-      source: 'WORKFLOW',
       leaveRequestId: request.id,
       approvalId: approval.id,
+      durationDays,
       hcmReferenceId: result.hcmReferenceId,
-      idempotencyKey: `confirmed-usage:${request.id}`,
-      effectiveAt: request.startDate,
+      usageEffectiveAt: request.startDate,
     });
 
     const updated = await prisma.leaveRequest.update({
@@ -314,17 +311,14 @@ export async function retryPendingHcmUpdates(
         actionWid: env.WORKDAY_SUBMITTED_ACTION_WID,
       });
 
-      await appendLedgerEntry(prisma, {
+      await convertPendingReservationToConfirmedUsage(prisma, {
         employeeId: request.employeeId,
         leaveTypeId: request.leaveTypeId,
         dimensions: request.dimensions as Record<string, unknown>,
-        entryType: 'CONFIRMED_USAGE',
-        amount: new Decimal(request.durationDays.toString()).negated(),
-        source: 'WORKFLOW',
         leaveRequestId: request.id,
+        durationDays: new Decimal(request.durationDays.toString()),
         hcmReferenceId: result.hcmReferenceId,
-        idempotencyKey: `confirmed-usage:${request.id}`,
-        effectiveAt: request.startDate,
+        usageEffectiveAt: request.startDate,
       });
 
       await prisma.leaveRequest.update({

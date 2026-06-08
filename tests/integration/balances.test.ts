@@ -53,6 +53,75 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     });
     expect(res.statusCode).toBe(403);
   });
+
+  it('deducts once after cancel, resubmit, and approve (no double debit)', async () => {
+    const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
+    const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
+
+    const first = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: authHeaders(aliceToken),
+      payload: leaveRequestPayload(ctx.aliceId, ctx.leaveTypeId, {
+        startDate: '2028-02-01',
+        endDate: '2028-02-02',
+        submit: true,
+        dimensions: { locationId: 'US-NY' },
+      }),
+    });
+    expect(first.statusCode).toBe(201);
+    const firstId = first.json().data.id;
+
+    const cancelRes = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${firstId}/cancel`,
+      headers: authHeaders(aliceToken, ''),
+    });
+    expect(cancelRes.statusCode).toBe(200);
+
+    const second = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/leave-requests',
+      headers: authHeaders(aliceToken),
+      payload: leaveRequestPayload(ctx.aliceId, ctx.leaveTypeId, {
+        startDate: '2028-03-01',
+        endDate: '2028-03-02',
+        submit: true,
+        dimensions: { locationId: 'US-NY' },
+      }),
+    });
+    expect(second.statusCode).toBe(201);
+    const secondId = second.json().data.id;
+
+    const approveRes = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/leave-requests/${secondId}/approve`,
+      headers: authHeaders(bobToken),
+      payload: { data: { type: 'approvals', attributes: {} } },
+    });
+    expect(approveRes.statusCode).toBe(200);
+
+    const approved = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: secondId } });
+    const usedDays = Number(approved.durationDays);
+
+    const balanceRes = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/v1/employees/${ctx.aliceId}/balances`,
+      headers: authHeaders(aliceToken, ''),
+    });
+    expect(balanceRes.statusCode).toBe(200);
+
+    const vacation = balanceRes.json().data.find(
+      (b: { relationships: { leaveType: { data: { id: string } } } }) =>
+        b.relationships.leaveType.data.id === ctx.leaveTypeId,
+    );
+    expect(vacation.attributes).toMatchObject({
+      currentBalance: 10,
+      ledgerBalance: 10 - usedDays,
+      pendingBalance: 0,
+      availableBalance: 10 - usedDays,
+    });
+  });
 });
 
 describe('IT-1.17 GET /api/v1/employees/{id}/balance-ledger', () => {
