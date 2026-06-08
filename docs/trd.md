@@ -1,8 +1,8 @@
-# Technical Requirements Document v2
+# Technical Requirements Document
 ## Time Off Management Microservice
 
 **Owner:** MyCompany  
-**Document status:** Draft  
+**Document status:** Final  
 **Primary audience:** Engineering, product, security, and implementation partners
 
 ---
