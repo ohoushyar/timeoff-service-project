@@ -4,6 +4,7 @@ import {
   teardownIntegrationContext,
   authHeaders,
   leaveRequestPayload,
+  seedHcmPendingRequest,
   type IntegrationContext,
 } from '../helpers/integration.js';
 import {
@@ -209,44 +210,40 @@ describe('§14.2 HCM approval retry workflow', () => {
 
   beforeEach(() => {
     resetMockMetrics();
+    setMockScenario({ simulateUnavailable: false });
   });
 
   it('retry job promotes APPROVED_PENDING_HCM_UPDATE to APPROVED', async () => {
-    const requestId = await submitAliceRequest(ctx, { start: '2028-08-01', end: '2028-08-02' });
-    setMockScenario({ simulateUnavailable: true });
-    const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    await ctx.app.inject({
-      method: 'POST',
-      url: `/api/v1/leave-requests/${requestId}/approve`,
-      headers: authHeaders(bobToken),
-      payload: { data: { type: 'approvals', attributes: {} } },
+    const { requestId } = await seedHcmPendingRequest(ctx.prisma, {
+      employeeId: ctx.aliceId,
+      leaveTypeId: ctx.leaveTypeId,
+      approverEmployeeId: ctx.bobId,
+      startDate: '2028-08-01',
+      endDate: '2028-08-02',
+      durationDays: 2,
+      hcmRetryDeadlineAt: new Date(Date.now() + 86_400_000),
     });
-    resetMockMetrics();
 
     await runHcmApprovalRetryJob(ctx.app);
+
     const request = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(request.status).toBe('APPROVED');
     expect(request.hcmReferenceId).toBeTruthy();
   });
 
   it('exhausted retries auto-reject with RESERVATION_RELEASE', async () => {
-    const requestId = await submitAliceRequest(ctx, { start: '2028-09-01', end: '2028-09-02' });
-    setMockScenario({ simulateUnavailable: true });
-    const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    await ctx.app.inject({
-      method: 'POST',
-      url: `/api/v1/leave-requests/${requestId}/approve`,
-      headers: authHeaders(bobToken),
-      payload: { data: { type: 'approvals', attributes: {} } },
-    });
-    resetMockMetrics();
-
-    await ctx.prisma.leaveRequest.update({
-      where: { id: requestId },
-      data: { hcmRetryDeadlineAt: new Date(Date.now() - 60_000) },
+    const { requestId } = await seedHcmPendingRequest(ctx.prisma, {
+      employeeId: ctx.aliceId,
+      leaveTypeId: ctx.leaveTypeId,
+      approverEmployeeId: ctx.bobId,
+      startDate: '2028-09-01',
+      endDate: '2028-09-02',
+      durationDays: 2,
+      hcmRetryDeadlineAt: new Date(Date.now() - 60_000),
     });
 
     await runHcmApprovalRetryJob(ctx.app);
+
     const request = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(request.status).toBe('REJECTED');
 
@@ -254,5 +251,25 @@ describe('§14.2 HCM approval retry workflow', () => {
       where: { leaveRequestId: requestId, entryType: 'RESERVATION_RELEASE' },
     });
     expect(ledger).toBeTruthy();
+  });
+
+  it('IT-2.9 exhausted retries emit HCM_APPROVAL_SYNC_FAILED notification', async () => {
+    await seedHcmPendingRequest(ctx.prisma, {
+      employeeId: ctx.aliceId,
+      leaveTypeId: ctx.leaveTypeId,
+      approverEmployeeId: ctx.bobId,
+      startDate: '2028-10-01',
+      endDate: '2028-10-02',
+      durationDays: 2,
+      hcmRetryDeadlineAt: new Date(Date.now() - 60_000),
+    });
+
+    await runHcmApprovalRetryJob(ctx.app);
+
+    const notification = await ctx.prisma.notification.findFirst({
+      where: { type: 'HCM_APPROVAL_SYNC_FAILED', recipientEmployeeId: ctx.aliceId },
+    });
+    expect(notification).toBeTruthy();
+    expect((notification!.payload as Record<string, unknown>).email).toBe('alice.employee@example.com');
   });
 });

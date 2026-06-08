@@ -1,6 +1,7 @@
 import { expect } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
+import { Decimal } from 'decimal.js';
 import { buildTestApp, signToken, JSON_API } from './app.js';
 import { setupTestDb, teardownTestDb, getTestDatabaseUrl } from './db.js';
 import {
@@ -8,6 +9,8 @@ import {
   resetMockMetrics,
 } from '../../tools/workday-mock/server.js';
 import type { Role } from '../../src/auth/roles.js';
+import { dimensionsHash } from '../../src/lib/dimensions.js';
+import { toJsonValue } from '../../src/lib/json.js';
 
 export { JSON_API };
 
@@ -105,9 +108,85 @@ export function authHeaders(token: string, contentType = JSON_API): Record<strin
   };
 }
 
+export function idempotencyHeaders(
+  token: string,
+  idempotencyKey: string,
+  contentType = JSON_API,
+): Record<string, string> {
+  return {
+    ...authHeaders(token, contentType),
+    'idempotency-key': idempotencyKey,
+  };
+}
+
 export function assertJsonApi(res: { json: () => unknown; statusCode: number }) {
   const body = res.json() as { jsonapi?: { version: string } };
   expect(body.jsonapi?.version).toBe('1.1');
+}
+
+/** Seeds APPROVED_PENDING_HCM_UPDATE state for fast retry-job tests (no HTTP workflow). */
+export async function seedHcmPendingRequest(
+  prisma: PrismaClient,
+  opts: {
+    employeeId: string;
+    leaveTypeId: string;
+    approverEmployeeId: string;
+    startDate: string;
+    endDate: string;
+    durationDays: number;
+    hcmRetryDeadlineAt: Date;
+    hcmRetryCount?: number;
+    dimensions?: Record<string, unknown>;
+  },
+): Promise<{ requestId: string; approvalId: string }> {
+  const dimensions = opts.dimensions ?? { locationId: 'US-NY' };
+  const hash = dimensionsHash(dimensions);
+  const start = new Date(opts.startDate);
+  const end = new Date(opts.endDate);
+  const duration = new Decimal(opts.durationDays);
+
+  const request = await prisma.leaveRequest.create({
+    data: {
+      employeeId: opts.employeeId,
+      leaveTypeId: opts.leaveTypeId,
+      startDate: start,
+      endDate: end,
+      durationDays: duration,
+      dimensions: toJsonValue(dimensions),
+      status: 'APPROVED_PENDING_HCM_UPDATE',
+      submittedAt: new Date(Date.now() - 86_400_000),
+      hcmRetryStartedAt: new Date(Date.now() - 86_400_000),
+      hcmRetryDeadlineAt: opts.hcmRetryDeadlineAt,
+      hcmRetryCount: opts.hcmRetryCount ?? 1,
+    },
+  });
+
+  const approval = await prisma.approval.create({
+    data: {
+      leaveRequestId: request.id,
+      approverEmployeeId: opts.approverEmployeeId,
+      approvalLevel: 1,
+      decision: 'APPROVED',
+      decidedAt: new Date(),
+    },
+  });
+
+  await prisma.leaveBalanceLedger.create({
+    data: {
+      employeeId: opts.employeeId,
+      leaveTypeId: opts.leaveTypeId,
+      dimensions: toJsonValue(dimensions),
+      dimensionsHash: hash,
+      entryType: 'PENDING_RESERVATION',
+      amount: duration.negated(),
+      source: 'WORKFLOW',
+      leaveRequestId: request.id,
+      idempotencyKey: `pending-reservation:${request.id}`,
+      effectiveAt: start,
+    },
+  });
+
+  return { requestId: request.id, approvalId: approval.id };
 }
 
 // re-export expect for helper modules that need it in assertJsonApi - tests import expect from vitest

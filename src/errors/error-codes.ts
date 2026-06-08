@@ -21,6 +21,7 @@ export const ErrorCodes = {
   APPROVAL_NOT_PENDING: { httpStatus: 422, title: 'Approval not pending' },
   HCM_UNAVAILABLE: { httpStatus: 503, title: 'HCM unavailable' },
   SYNC_IN_PROGRESS: { httpStatus: 409, title: 'Sync in progress' },
+  IDEMPOTENCY_CONFLICT: { httpStatus: 409, title: 'Idempotency key conflict' },
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

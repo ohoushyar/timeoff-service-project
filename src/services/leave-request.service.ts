@@ -7,6 +7,7 @@ import { dimensionsHash } from '../lib/dimensions.js';
 import { appendLedgerEntry } from './ledger.service.js';
 import { checkAvailableBalance } from './balance.service.js';
 import { writeAudit } from './audit.service.js';
+import { notifyEmployee } from './notification.service.js';
 import { toJsonValue } from '../lib/json.js';
 import {
   resolvePolicy,
@@ -161,6 +162,10 @@ export async function createLeaveRequest(
         },
       });
     }
+
+    await notifyEmployee(prisma, input.employeeId, 'REQUEST_SUBMITTED', {
+      leaveRequestId: request.id,
+    });
   }
 
   await writeAudit(prisma, {
@@ -178,14 +183,45 @@ export async function createLeaveRequest(
 
 export async function cancelLeaveRequest(
   prisma: PrismaClient,
+  hcm: HcmClient,
   requestId: string,
   actor: { id?: string; role?: string; correlationId?: string },
 ) {
-  const request = await prisma.leaveRequest.findUnique({ where: { id: requestId } });
+  const request = await prisma.leaveRequest.findUnique({
+    where: { id: requestId },
+    include: { employee: true },
+  });
   if (!request) throw new AppError('NOT_FOUND');
 
-  if (!['PENDING', 'APPROVED_PENDING_HCM_UPDATE', 'DRAFT'].includes(request.status)) {
+  const cancellable = ['PENDING', 'APPROVED_PENDING_HCM_UPDATE', 'DRAFT', 'APPROVED'];
+  if (!cancellable.includes(request.status)) {
     throw new AppError('INVALID_WORKFLOW_TRANSITION');
+  }
+
+  if (request.status === 'APPROVED') {
+    if (!request.hcmReferenceId) {
+      throw new AppError('INVALID_WORKFLOW_TRANSITION');
+    }
+    try {
+      await hcm.correctTimeOffEntry(request.employee.externalEmployeeId, request.hcmReferenceId);
+    } catch (err) {
+      if (err instanceof HcmUnavailableError) {
+        throw new AppError('HCM_UNAVAILABLE', err.message);
+      }
+      throw err;
+    }
+
+    await appendLedgerEntry(prisma, {
+      employeeId: request.employeeId,
+      leaveTypeId: request.leaveTypeId,
+      dimensions: request.dimensions as Record<string, unknown>,
+      entryType: 'USAGE_REVERSAL',
+      amount: new Decimal(request.durationDays.toString()),
+      source: 'WORKFLOW',
+      leaveRequestId: request.id,
+      idempotencyKey: `usage-reversal:${request.id}:cancel`,
+      effectiveAt: new Date(),
+    });
   }
 
   const updated = await prisma.leaveRequest.update({
@@ -216,6 +252,10 @@ export async function cancelLeaveRequest(
     correlationId: actor.correlationId,
     before: { status: request.status },
     after: { status: 'CANCELLED' },
+  });
+
+  await notifyEmployee(prisma, request.employeeId, 'REQUEST_CANCELLED', {
+    leaveRequestId: request.id,
   });
 
   return updated;
@@ -302,7 +342,7 @@ export async function updateLeaveRequest(
     startDate,
     endDate,
     partialDayType,
-    partialDayHours,
+    partialDayHours != null ? Number(partialDayHours) : null,
     holidays,
     location,
   );

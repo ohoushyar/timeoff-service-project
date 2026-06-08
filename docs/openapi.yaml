@@ -9,7 +9,7 @@ info:
 
     **Correlation:** Send optional `X-Correlation-Id`; echoed in responses and error `meta`.
 
-    Documents **implemented** Phase 1 endpoints only. See [spec.md](spec.md) for the full roadmap.
+    Documents **implemented** Phase 1 and Phase 2 endpoints. See [spec.md](spec.md) for the full roadmap.
   contact:
     name: Time Off Service
   license:
@@ -36,6 +36,8 @@ tags:
     description: Manager approval workflow
   - name: Balances
     description: Leave balances and workflow ledger
+  - name: Reports
+    description: Usage, team calendar, and audit export (Phase 2)
 
 paths:
   /health/live:
@@ -166,6 +168,7 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201':
           description: Sync started/completed
@@ -207,6 +210,161 @@ paths:
             application/vnd.api+json:
               schema:
                 $ref: '#/components/schemas/SyncStatusDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/sync-runs:
+    get:
+      tags: [Sync]
+      summary: List sync runs
+      description: Paginated HCM sync run history (newest first). Requires `hr_admin`, `system_admin`, or `integration_client`.
+      operationId: listSyncRuns
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Sync run collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/SyncRunCollectionDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/sync-runs/{id}:
+    get:
+      tags: [Sync]
+      summary: Get sync run
+      operationId: getSyncRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Sync run detail
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: '#/components/schemas/SyncRunDetailDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/reports/leave-usage:
+    get:
+      tags: [Reports]
+      summary: Leave usage report
+      operationId: getLeaveUsageReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter[startDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: filter[endDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: filter[department]
+          in: query
+          schema:
+            type: string
+        - name: filter[employeeId]
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Usage summary with meta.summary aggregates
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/reports/team-calendar:
+    get:
+      tags: [Reports]
+      summary: Team calendar report
+      operationId: getTeamCalendarReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter[startDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: filter[endDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: filter[employeeId]
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: filter[teamId]
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Team leave calendar entries
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/reports/audit:
+    get:
+      tags: [Reports]
+      summary: Audit export
+      operationId: getAuditReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter[startDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: filter[endDate]
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Paginated audit log export (no email in rows)
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -316,6 +474,7 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -390,13 +549,14 @@ paths:
     post:
       tags: [Leave Requests]
       summary: Cancel leave request
-      description: Cancels a request in `PENDING`, `APPROVED_PENDING_HCM_UPDATE`, or `DRAFT` status.
+      description: Cancels a request in `PENDING`, `APPROVED_PENDING_HCM_UPDATE`, `APPROVED`, or `DRAFT` status.
       operationId: cancelLeaveRequest
       security:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/LeaveRequestId'
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
           description: Cancelled leave request
@@ -427,6 +587,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/LeaveRequestId'
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         content:
           application/vnd.api+json:
@@ -461,6 +622,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/LeaveRequestId'
         - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         content:
           application/vnd.api+json:
@@ -558,6 +720,14 @@ components:
       schema:
         type: string
       description: Optional trace ID; generated if omitted
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Optional idempotency key for safe POST retries (24h TTL)
 
   headers:
     CorrelationId:
@@ -1180,18 +1350,33 @@ components:
     SyncRunAttributes:
       type: object
       properties:
+        syncType:
+          type: string
         syncRunId:
           type: string
           format: uuid
+        status:
+          type: string
+          enum: [SUCCESS, PARTIAL, FAILED, IN_PROGRESS]
+        correlationId:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
         employeeCount:
           type: integer
         balanceCount:
           type: integer
         adjustmentCount:
           type: integer
-        status:
+        errorDetails:
+          type: object
+        createdAt:
           type: string
-          enum: [SUCCESS, PARTIAL, FAILED]
+          format: date-time
 
     SyncRunResource:
       type: object
@@ -1219,6 +1404,25 @@ components:
           properties:
             correlationId:
               type: string
+
+    SyncRunDetailDocument:
+      allOf:
+        - $ref: '#/components/schemas/SyncRunDocument'
+
+    SyncRunCollectionDocument:
+      type: object
+      required: [jsonapi, data]
+      properties:
+        jsonapi:
+          $ref: '#/components/schemas/JsonApiVersion'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncRunResource'
+        links:
+          $ref: '#/components/schemas/PaginationLinks'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
 
     SyncStatusAttributes:
       type: object

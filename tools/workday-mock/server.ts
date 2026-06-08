@@ -8,6 +8,7 @@ export interface MockScenario {
 
 const scenario: MockScenario = {};
 let requestTimeOffCallCount = 0;
+let correctTimeOffEntryCallCount = 0;
 
 export function setMockScenario(s: MockScenario): void {
   scenario.simulateUnavailable = s.simulateUnavailable ?? false;
@@ -16,12 +17,17 @@ export function setMockScenario(s: MockScenario): void {
 
 export function resetMockMetrics(): void {
   requestTimeOffCallCount = 0;
+  correctTimeOffEntryCallCount = 0;
   scenario.simulateUnavailable = false;
   scenario.simulateInsufficientBalance = false;
 }
 
 export function getRequestTimeOffCallCount(): number {
   return requestTimeOffCallCount;
+}
+
+export function getCorrectTimeOffEntryCallCount(): number {
+  return correctTimeOffEntryCallCount;
 }
 
 export function buildWorkdayMockApp() {
@@ -55,6 +61,12 @@ export function buildWorkdayMockApp() {
   app.get('/absenceManagement/v5/workers/:id/eligibleAbsenceTypes', async (request, reply) => {
     if (scenario.simulateUnavailable) return reply503(reply);
     return { data: LEAVE_TYPES, total: LEAVE_TYPES.length };
+  });
+
+  app.post('/absenceManagement/v5/workers/:id/correctTimeOffEntry', async (request, reply) => {
+    correctTimeOffEntryCallCount++;
+    if (scenario.simulateUnavailable) return reply503(reply);
+    return { status: 'ok' };
   });
 
   app.post('/absenceManagement/v5/workers/:id/requestTimeOff', async (request, reply) => {

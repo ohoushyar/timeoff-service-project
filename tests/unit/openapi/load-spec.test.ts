@@ -23,10 +23,12 @@ describe('openapi/load-spec', () => {
         '/health/ready',
         '/api/v1/leave-requests',
         '/api/v1/sync/time-off',
+        '/api/v1/sync-runs',
+        '/api/v1/reports/leave-usage',
         '/api/v1/approvals/pending',
       ]),
     );
-    expect(Object.keys(paths)).toHaveLength(15);
+    expect(Object.keys(paths)).toHaveLength(20);
 
     const operationCount = Object.values(paths).reduce(
       (count, pathItem) =>
@@ -36,6 +38,6 @@ describe('openapi/load-spec', () => {
         ).length,
       0,
     );
-    expect(operationCount).toBe(16);
+    expect(operationCount).toBe(21);
   });
 });

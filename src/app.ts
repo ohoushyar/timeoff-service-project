@@ -13,6 +13,8 @@ import { policyRoutes } from './routes/v1/policies.js';
 import { leaveRequestRoutes } from './routes/v1/leave-requests.js';
 import { approvalRoutes } from './routes/v1/approvals.js';
 import { balanceRoutes } from './routes/v1/balances.js';
+import { syncRunRoutes } from './routes/v1/sync-runs.js';
+import { reportRoutes } from './routes/v1/reports.js';
 import { startScheduler } from './jobs/scheduler.js';
 import { AppError } from './errors/app-error.js';
 
@@ -58,6 +60,8 @@ export async function buildApp(options: BuildAppOptions) {
   await app.register(leaveRequestRoutes);
   await app.register(approvalRoutes);
   await app.register(balanceRoutes);
+  await app.register(syncRunRoutes);
+  await app.register(reportRoutes);
 
   if (options.startJobs) {
     startScheduler(app);

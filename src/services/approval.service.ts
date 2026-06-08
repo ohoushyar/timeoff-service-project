@@ -8,6 +8,7 @@ import type { Env } from '../config/env.js';
 import { appendLedgerEntry } from './ledger.service.js';
 import { checkAvailableBalance } from './balance.service.js';
 import { writeAudit } from './audit.service.js';
+import { notifyEmployee } from './notification.service.js';
 import {
   resolvePolicy,
   allowsNegativeBalance,
@@ -155,6 +156,11 @@ export async function approveLeaveRequest(
       after: { status: 'APPROVED', hcmReferenceId: result.hcmReferenceId },
     });
 
+    await notifyEmployee(prisma, request.employeeId, 'REQUEST_APPROVED', {
+      leaveRequestId: request.id,
+      hcmReferenceId: result.hcmReferenceId,
+    });
+
     return updated;
   } catch (err) {
     if (err instanceof HcmValidationError) {
@@ -182,6 +188,10 @@ export async function approveLeaveRequest(
         resourceId: request.id,
         correlationId: actor?.correlationId,
         after: { status: 'APPROVED_PENDING_HCM_UPDATE' },
+      });
+
+      await notifyEmployee(prisma, request.employeeId, 'APPROVAL_PENDING_HCM_UPDATE', {
+        leaveRequestId: request.id,
       });
 
       return updated;
@@ -241,6 +251,10 @@ export async function rejectLeaveRequest(
     resourceId: request.id,
     correlationId: actor?.correlationId,
     after: { status: 'REJECTED' },
+  });
+
+  await notifyEmployee(prisma, request.employeeId, 'REQUEST_REJECTED', {
+    leaveRequestId: request.id,
   });
 
   return updated;
@@ -314,6 +328,10 @@ export async function retryPendingHcmUpdates(
           hcmPostedAt: new Date(),
         },
       });
+      await notifyEmployee(prisma, request.employeeId, 'REQUEST_APPROVED', {
+        leaveRequestId: request.id,
+        hcmReferenceId: result.hcmReferenceId,
+      });
       succeeded++;
     } catch (err) {
       if (err instanceof HcmValidationError) {
@@ -331,6 +349,10 @@ export async function retryPendingHcmUpdates(
           leaveRequestId: request.id,
           idempotencyKey: `reservation-release:${request.id}:hcm-fail`,
           effectiveAt: new Date(),
+        });
+        await notifyEmployee(prisma, request.employeeId, 'REQUEST_REJECTED', {
+          leaveRequestId: request.id,
+          reason: 'hcm_validation_failure',
         });
         failed++;
         continue;
@@ -369,6 +391,9 @@ export async function retryPendingHcmUpdates(
       leaveRequestId: request.id,
       idempotencyKey: `reservation-release:${request.id}:expired`,
       effectiveAt: new Date(),
+    });
+    await notifyEmployee(prisma, request.employeeId, 'HCM_APPROVAL_SYNC_FAILED', {
+      leaveRequestId: request.id,
     });
     failed++;
   }

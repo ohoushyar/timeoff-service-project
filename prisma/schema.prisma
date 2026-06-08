@@ -341,6 +341,7 @@ model IdempotencyKey {
   id           String   @id @default(uuid())
   key          String   @unique
   route        String
+  requestHash  String
   responseBody Json
   statusCode   Int
   expiresAt    DateTime

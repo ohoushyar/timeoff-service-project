@@ -5,6 +5,7 @@ import { runTimeOffSync, getSyncStatus } from '../../services/sync.service.js';
 import { createHcmClient } from '../../integrations/hcm/workday/workday.adapter.js';
 import { serializeSyncStatus } from '../../serializers/jsonapi/resources/sync-status.js';
 import { JSON_API_CONTENT_TYPE } from '../../plugins/jsonapi.js';
+import { withIdempotency, getIdempotencyKey } from '../../services/idempotency.service.js';
 
 export async function syncRoutes(app: FastifyInstance): Promise<void> {
   app.post(
@@ -17,21 +18,35 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const hcm = createHcmClient(app.config);
-      const result = await runTimeOffSync(app.prisma, hcm, {
-        syncType: 'bootstrap',
-        correlationId: request.correlationId,
-        actorId: request.user.sub,
-        actorRole: request.user.roles?.[0],
-      });
-      return reply.status(201).type(JSON_API_CONTENT_TYPE).send({
-        jsonapi: { version: '1.1' },
-        data: {
-          type: 'sync-runs',
-          id: result.syncRunId,
-          attributes: result,
+      const idempotencyKey = getIdempotencyKey(request.headers as Record<string, unknown>);
+      const idempotent = await withIdempotency(
+        app.prisma,
+        'POST /api/v1/sync/time-off',
+        idempotencyKey,
+        request.body ?? {},
+        async () => {
+          const result = await runTimeOffSync(app.prisma, hcm, {
+            syncType: 'bootstrap',
+            correlationId: request.correlationId,
+            actorId: request.user.sub,
+            actorRole: request.user.roles?.[0],
+          });
+          const body = {
+            jsonapi: { version: '1.1' as const },
+            data: {
+              type: 'sync-runs',
+              id: result.syncRunId,
+              attributes: result,
+            },
+            meta: { correlationId: request.correlationId },
+          };
+          return { statusCode: 201, body: body as Record<string, unknown> };
         },
-        meta: { correlationId: request.correlationId },
-      });
+      );
+      return reply
+        .status(idempotent.statusCode)
+        .type(JSON_API_CONTENT_TYPE)
+        .send(idempotent.body);
     },
   );
 

@@ -17,6 +17,7 @@ import { JSON_API_CONTENT_TYPE } from '../../plugins/jsonapi.js';
 import { parsePagination } from './leave-types.js';
 import { paramId } from '../../lib/params.js';
 import { AppError } from '../../errors/app-error.js';
+import { withIdempotency, getIdempotencyKey } from '../../services/idempotency.service.js';
 
 export async function leaveRequestRoutes(app: FastifyInstance): Promise<void> {
   app.post(
@@ -47,30 +48,43 @@ export async function leaveRequestRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const hcm = createHcmClient(app.config);
-      const result = await createLeaveRequest(
+      const idempotencyKey = getIdempotencyKey(request.headers as Record<string, unknown>);
+      const idempotent = await withIdempotency(
         app.prisma,
-        hcm,
-        app.config,
-        {
-          employeeId,
-          leaveTypeId,
-          startDate: new Date(String(attrs.startDate)),
-          endDate: new Date(String(attrs.endDate)),
-          partialDayType: (attrs.partialDay as PartialDayType) ?? 'NONE',
-          partialDayHours: attrs.partialDayHours as number | undefined,
-          dimensions: (attrs.dimensions as Record<string, unknown>) ?? {},
-          reason: attrs.reason as string | undefined,
-          submit: attrs.submit === true,
-          documentationProvided: attrs.documentationProvided === true,
-        },
-        {
-          id: request.user.sub,
-          role: request.user.roles?.[0],
-          correlationId: request.correlationId,
+        'POST /api/v1/leave-requests',
+        idempotencyKey,
+        request.body,
+        async () => {
+          const created = await createLeaveRequest(
+            app.prisma,
+            hcm,
+            app.config,
+            {
+              employeeId,
+              leaveTypeId,
+              startDate: new Date(String(attrs.startDate)),
+              endDate: new Date(String(attrs.endDate)),
+              partialDayType: (attrs.partialDay as PartialDayType) ?? 'NONE',
+              partialDayHours: attrs.partialDayHours as number | undefined,
+              dimensions: (attrs.dimensions as Record<string, unknown>) ?? {},
+              reason: attrs.reason as string | undefined,
+              submit: attrs.submit === true,
+              documentationProvided: attrs.documentationProvided === true,
+            },
+            {
+              id: request.user.sub,
+              role: request.user.roles?.[0],
+              correlationId: request.correlationId,
+            },
+          );
+          return { statusCode: 201, body: serializeLeaveRequest(created) as unknown as Record<string, unknown> };
         },
       );
 
-      return reply.status(201).type(JSON_API_CONTENT_TYPE).send(serializeLeaveRequest(result));
+      return reply
+        .status(idempotent.statusCode)
+        .type(JSON_API_CONTENT_TYPE)
+        .send(idempotent.body);
     },
   );
 
@@ -181,12 +195,27 @@ export async function leaveRequestRoutes(app: FastifyInstance): Promise<void> {
       if (!isPrivileged(request) && existing.employeeId !== request.user.employeeId) {
         throw new AppError('FORBIDDEN');
       }
-      const result = await cancelLeaveRequest(app.prisma, paramId(request), {
-        id: request.user.sub,
-        role: request.user.roles?.[0],
-        correlationId: request.correlationId,
-      });
-      return reply.type(JSON_API_CONTENT_TYPE).send(serializeLeaveRequest(result));
+      const requestId = paramId(request);
+      const hcm = createHcmClient(app.config);
+      const idempotencyKey = getIdempotencyKey(request.headers as Record<string, unknown>);
+      const idempotent = await withIdempotency(
+        app.prisma,
+        `POST /api/v1/leave-requests/${requestId}/cancel`,
+        idempotencyKey,
+        request.body ?? {},
+        async () => {
+          const cancelled = await cancelLeaveRequest(app.prisma, hcm, requestId, {
+            id: request.user.sub,
+            role: request.user.roles?.[0],
+            correlationId: request.correlationId,
+          });
+          return {
+            statusCode: 200,
+            body: serializeLeaveRequest(cancelled) as unknown as Record<string, unknown>,
+          };
+        },
+      );
+      return reply.type(JSON_API_CONTENT_TYPE).send(idempotent.body);
     },
   );
 }

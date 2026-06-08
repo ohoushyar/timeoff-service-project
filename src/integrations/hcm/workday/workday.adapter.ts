@@ -150,8 +150,19 @@ export class WorkdayAdapter implements HcmClient {
     };
   }
 
-  async correctTimeOffEntry(_workerWID: string, _entryId: string): Promise<void> {
-    // Phase 2
+  async correctTimeOffEntry(workerWID: string, entryId: string): Promise<void> {
+    const body = {
+      days: [
+        {
+          correctedEntry: { id: entryId },
+          delete: true,
+        },
+      ],
+    };
+    await this.http.postMultipart(
+      `/absenceManagement/v5/workers/${workerWID}/correctTimeOffEntry`,
+      body,
+    );
   }
 
   async getValidTimeOffDates(_workerWID: string, query: ValidDatesQuery): Promise<ValidDatesResult> {
