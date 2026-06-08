@@ -2,7 +2,7 @@
 
 **Product owner:** MyCompany  
 **Version:** 1.9  
-**Status:** Draft  
+**Status:** Final  
 **Source:** Derived from [trd.md](./trd.md) (TRD v2)  
 **Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
 **HCM adapter (v1):** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`)
