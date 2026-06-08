@@ -1,7 +1,7 @@
 # Time Off Management Microservice — Implementation Specification
 
 **Product owner:** MyCompany  
-**Version:** 1.7  
+**Version:** 1.9  
 **Status:** Draft  
 **Source:** Derived from [trd.md](./trd.md) (TRD v2)  
 **Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
@@ -147,12 +147,15 @@ timeoff-service/
 │   │   └── hcm-approval-retry.job.ts    # Hourly retry for approved_pending_hcm_update
 │   ├── integrations/
 │   │   └── hcm/
-│   │       ├── hcm.client.ts            # HcmClient interface
+│   │       ├── types.ts                 # Vendor-neutral HCM types + HcmClient interface
+│   │       ├── hcm.factory.ts           # createHcmClient() — provider selection (Phase 3)
+│   │       ├── capabilities.ts          # HcmAdapterCapabilities per provider (Phase 3)
 │   │       ├── workday/
-│   │       │   ├── workday.adapter.ts   # Absence Management v5
+│   │       │   ├── workday.adapter.ts   # Workday Absence Management v5 (v1 reference adapter)
 │   │       │   ├── workday.client.ts
-│   │       │   └── types.ts
-│   │       └── types.ts
+│   │       │   └── error-mapping.ts
+│   │       └── stub/
+│   │           └── stub.adapter.ts      # In-memory adapter for tests / future provider scaffold (Phase 3)
 │   ├── auth/
 │   │   ├── roles.ts
 │   │   └── guards.ts
@@ -179,7 +182,7 @@ timeoff-service/
 2. **Services** — Domain orchestration, transactions, audit/notification side effects.
 3. **Engines** — Pure policy/approval rule evaluation against synced HCM data.
 4. **Repositories** — Prisma access only; no HTTP or JSON:API concerns.
-5. **Integrations** — HCM client/adapter isolated from domain services.
+5. **Integrations** — HCM client/adapter isolated from domain services. Routes, jobs, and services depend on `HcmClient` via `createHcmClient()` only; they MUST NOT import vendor-specific packages (Phase 3 enforces factory indirection).
 
 ---
 
@@ -193,7 +196,8 @@ timeoff-service/
 | `JWT_SECRET` | yes | — | HS256 signing secret |
 | `JWT_ISSUER` | no | `timeoff-service` | Expected token issuer |
 | `JWT_AUDIENCE` | no | `timeoff-api` | Expected token audience |
-| `WORKDAY_TENANT_HOSTNAME` | yes* | — | Workday tenant hostname |
+| `HCM_PROVIDER` | no | `workday` | Active HCM adapter: `workday` (v1), `stub` (tests/scaffold). Future: `sap-successfactors`, etc. |
+| `WORKDAY_TENANT_HOSTNAME` | yes* | — | Workday tenant hostname (when `HCM_PROVIDER=workday`) |
 | `WORKDAY_CLIENT_ID` | yes* | — | OAuth client ID for Workday |
 | `WORKDAY_CLIENT_SECRET` | yes* | — | OAuth client secret |
 | `WORKDAY_REFRESH_TOKEN` | yes* | — | OAuth refresh token |
@@ -1093,15 +1097,62 @@ Reports return JSON:API collection documents with `meta.summary` for aggregates.
 
 ---
 
-## 10. HCM Integration Interface (Workday Absence Management v5)
+## 10. HCM Integration Interface
+
+Domain services, routes, and jobs depend on the vendor-neutral **`HcmClient`** contract only. Vendor-specific HTTP clients, payload shapes, and error codes live in per-provider adapters under `src/integrations/hcm/{provider}/`. **Phase 1–2** ship with `HCM_PROVIDER=workday` as the sole production adapter. **Phase 3** introduces the provider factory and capability model so additional HCM systems (e.g. SAP SuccessFactors) can be added without changing domain services.
+
+### 10.0 Multi-HCM Adapter Abstraction (Phase 3)
+
+| Concern | Rule |
+|---|---|
+| **Provider selection** | `createHcmClient(config)` in `hcm.factory.ts` resolves the adapter from `HCM_PROVIDER`. Invalid or unsupported values fail fast at startup. |
+| **Vendor isolation** | No route, job, or service imports `workday/*` (or future vendor paths) directly. All HCM I/O goes through `HcmClient`. |
+| **Neutral types** | Batch sync, balance reads, and accounting writes use types in `integrations/hcm/types.ts` (`EmployeeSnapshot`, `BalanceRow`, `RequestTimeOffPayload`, etc.). Adapters map vendor payloads to/from these types. |
+| **Capabilities** | Each adapter exposes `HcmAdapterCapabilities` so domain code can branch on optional features without `if (provider === 'workday')` scattered through services. |
+| **Error mapping** | Vendor error codes map to stable service errors (`HCM_VALIDATION_ERROR`, `HCM_INSUFFICIENT_BALANCE`, …) inside the adapter's `error-mapping` module—not in domain services. |
+| **Extension** | New providers implement `HcmClient`, register in the factory, and document provider-specific env vars. Domain workflow rules (local approve, no HCM approval sync) remain unchanged. |
+
+```typescript
+interface HcmAdapterCapabilities {
+  provider: 'workday' | 'stub' | string;
+  supportsBatchSync: boolean;
+  supportsPreflightValidation: boolean;   // e.g. Workday eligibleAbsenceTypes + validTimeOffDates
+  supportsWebhookIngest: boolean;
+  supportsAccountingWrite: boolean;       // post approved usage + cancel/correct
+  batchSyncStrategy: 'paginated_aggregate' | 'single_corpus' | 'custom';
+}
+
+interface HcmClient {
+  readonly capabilities: HcmAdapterCapabilities;
+
+  // Nightly batch aggregation
+  fetchEmployeeSnapshots(params: BatchParams): Promise<EmployeeSnapshotPage>;
+  fetchEligibleAbsenceTypes(workerExternalId: string): Promise<HcmLeaveType[]>;
+  fetchPolicies?(workerExternalId: string, leaveTypes: HcmLeaveType[]): Promise<HcmPolicy[]>;
+  fetchBalances(workerExternalId: string, effectiveDate: string): Promise<BalanceRow[]>;
+
+  // Realtime — balance reads and accounting writes
+  requestTimeOff(workerExternalId: string, payload: RequestTimeOffPayload): Promise<RequestTimeOffResult>;
+  correctTimeOffEntry(workerExternalId: string, entryId: string): Promise<void>;
+  getValidTimeOffDates?(workerExternalId: string, query: ValidDatesQuery): Promise<ValidDatesResult>;
+  getTimeOffDetails?(workerExternalId: string): Promise<TimeOffEntry[]>; // optional verify only
+}
+```
+
+**Phase 3 deliverables:**
+- Move `createHcmClient()` from `workday.adapter.ts` to `hcm.factory.ts`; refactor all call sites to import from the factory.
+- `StubAdapter` implementing `HcmClient` with in-memory fixtures for integration tests and as a template for future providers.
+- Workday remains the reference production adapter; SAP SuccessFactors (or other targets) are out of scope for Phase 3 implementation but MUST be addable by dropping in a new adapter + factory registration without domain changes.
+
+### 10.1 Workday Reference Adapter (Absence Management v5)
 
 **Base path:** `https://{tenantHostname}/absenceManagement/v5`  
 **OpenAPI reference:** `docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`  
 **Worker path param:** `{workerWID}` = local `externalEmployeeId`
 
-Domain services depend on `HcmClient`; v1 implementation is `WorkdayAdapter` hiding Workday payloads.
+`WorkdayAdapter` implements `HcmClient` and hides all Workday payloads behind vendor-neutral types.
 
-### 10.1 Workday Endpoint Inventory
+### 10.2 Workday Endpoint Inventory
 
 | Purpose | Method | Workday endpoint |
 |---|---|---|
@@ -1115,7 +1166,7 @@ Domain services depend on `HcmClient`; v1 implementation is `WorkdayAdapter` hid
 
 Nightly batch aggregates paginated collection responses—there is no single batch-corpus endpoint. Nightly sync must **not** import HCM approval queues or workflow state.
 
-### 10.2 Prescribed Approval Post Flow
+### 10.3 Prescribed Approval Post Flow
 
 Called at **approve** time only. Submit does **not** call Workday.
 
@@ -1128,24 +1179,7 @@ Approval JSON must include `days[]` with `date`, `timeOffType.id`, quantity fiel
 
 **Cancel of approved:** `correctTimeOffEntry` with `days[].correctedEntry.id` and `days[].delete=true`.
 
-**No REST approve/deny** in Absence Management v5. All approval workflow lives in the microservice. Optional `timeOffDetails` reads verify posted entries only—they must not drive local workflow state.
-
-### 10.3 Adapter Contract (summary)
-
-```typescript
-interface HcmClient {
-  // Nightly batch aggregation
-  fetchEmployeeSnapshots(params: BatchParams): Promise<EmployeeSnapshotPage>;
-  fetchEligibleAbsenceTypes(workerWID: string): Promise<LeaveType[]>;
-  fetchBalances(workerWID: string, effectiveDate: string): Promise<BalanceRow[]>;
-
-  // Realtime — balance reads and accounting writes
-  requestTimeOff(workerWID: string, payload: RequestTimeOffPayload): Promise<RequestTimeOffResult>; // approve only
-  correctTimeOffEntry(workerWID: string, payload: CorrectTimeOffPayload): Promise<void>;
-  getTimeOffDetails(workerWID: string): Promise<TimeOffEntry[]>; // optional verify only
-  getValidTimeOffDates(workerWID: string, query: ValidDatesQuery): Promise<ValidDatesResult>;
-}
-```
+**No REST approve/deny** in Absence Management v5. All approval workflow lives in the microservice. Optional `timeOffDetails` reads verify posted entries only—they must not drive local workflow state. Preflight steps run only when `capabilities.supportsPreflightValidation` is true (Workday with `WORKDAY_PREFLIGHT_ENABLED`).
 
 ### 10.4 Workday Error Mapping
 
@@ -1198,6 +1232,7 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | `pending_approvals` | gauge | — |
 | `cron_job_total` | counter | job, status |
 | `workday_realtime_total` | counter | operation, outcome |
+| `hcm_realtime_total` | counter | provider, operation, outcome |
 | `sync_adjustment_total` | counter | leave_type |
 | `ledger_reconciliation_drift` | gauge | leave_type, dimensions_hash |
 | `sync_staleness_seconds` | gauge | — |
@@ -1283,8 +1318,9 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | IT-2.10 | Notifications | `REQUEST_SUBMITTED`, `REQUEST_APPROVED`, `REQUEST_REJECTED`, `APPROVAL_OVERDUE` records created with snapshot email in payload (not in audit) |
 
 ### Phase 3 — Operations & Advanced Workflow
+- **HCM abstraction:** `HCM_PROVIDER` factory, `HcmAdapterCapabilities`, vendor-neutral `HcmClient`; refactor routes/jobs to import `createHcmClient` from `hcm.factory.ts` only; `StubAdapter` for tests and future provider scaffold
 - Multi-step and HR approval; auto-approval from synced policies
-- Workday preflight reads at approve (`eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED`)
+- Workday preflight reads at approve (`eligibleAbsenceTypes` + `validTimeOffDates` when `capabilities.supportsPreflightValidation` and `WORKDAY_PREFLIGHT_ENABLED`)
 - Optional webhook early master-data reconciliation (must not drive approval workflow)
 - Metrics export
 - PostgreSQL migration guide
@@ -1302,7 +1338,9 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | IT-3.4 | Stale sync visibility | Balance and sync-status responses surface `lastSyncedAt` / staleness when nightly sync aged |
 | IT-3.5 | HCM outage runbook paths | Manual `POST /api/v1/sync/time-off` recovery after outage; sync status reflects failure then success |
 | IT-3.6 | Multi-step approval | Level 2 not actionable until level 1 approved; HR step from policy; auto-approve skips pending approvals |
-| IT-3.7 | `POST .../approve` with preflight | Calls `eligibleAbsenceTypes` + `validTimeOffDates` when `WORKDAY_PREFLIGHT_ENABLED` |
+| IT-3.7 | `POST .../approve` with preflight | Calls `eligibleAbsenceTypes` + `validTimeOffDates` when adapter `supportsPreflightValidation` and `WORKDAY_PREFLIGHT_ENABLED` |
+| IT-3.8 | HCM provider abstraction | `HCM_PROVIDER=workday` resolves `WorkdayAdapter`; `HCM_PROVIDER=stub` runs full submit/approve/sync path against in-memory adapter; no route/job imports vendor adapter modules directly |
+| IT-3.9 | Adapter capabilities | Approval service skips preflight when `supportsPreflightValidation=false`; webhook handler no-ops when `supportsWebhookIngest=false` |
 
 ---
 
@@ -1315,7 +1353,8 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 - Approval chain construction from nightly manager snapshot
 - Leave duration / overlap detection
 - Defensive validation and dimensional balance matching
-- Workday error code mapping
+- HCM factory provider resolution and capability branching (Phase 3)
+- Workday error code mapping (adapter-local)
 - JSON:API serializers
 
 ### 14.2 Integration Tests
@@ -1390,3 +1429,4 @@ Endpoint coverage is defined per implementation phase in **§13** (IT-1.x throug
 | 1.6 | 2026-06-06 | Aligned with TRD v2 workflow model: local submit without HCM write; HCM post at approve; `approved_pending_hcm_update` hourly retry; microservice-only approval workflow; no HCM approval sync in nightly batch |
 | 1.7 | 2026-06-06 | Per-phase integration test matrices (IT-1.x–IT-3.x) covering all endpoints introduced in each phase |
 | 1.8 | 2026-06-07 | Moved multi-step/HR/auto approval and Workday preflight from Phase 2 to Phase 3 (IT-3.6, IT-3.7); renumbered Phase 2 integration tests IT-2.8–IT-2.10 |
+| 1.9 | 2026-06-08 | Phase 3 HCM abstraction: `HCM_PROVIDER` factory, `HcmAdapterCapabilities`, vendor-neutral `HcmClient` (§10.0), `StubAdapter`, IT-3.8–IT-3.9 |

@@ -23,6 +23,8 @@ The service keeps a deliberately small local working copy of HCM data:
 
 Employees and managers interact with time off through this microservice, not directly through HCM. For Workday v1, submit creates a local pending request and pending balance reservation without writing to HCM; HCM is called at approval time to post the time-off entry and at cancel of an approved entry to correct/delete it in HCM. Submit and approve attempt realtime balance reads from HCM when available, but fall back to the local working copy and ledger when HCM realtime calls cannot be completed. When HCM is unavailable during approval, the request moves to `approved_pending_hcm_update` and the service retries the HCM write hourly for up to 24 hours before auto-rejecting. Employment fields are not re-fetched from HCM on each request.
 
+HCM integration is mediated by a vendor-neutral adapter contract (§7.1). v1 ships Workday as the production adapter; Phase 3 completes provider selection and factory indirection so additional HCM platforms can be supported without changing domain workflow logic.
+
 ---
 
 ## 2. Goals and Non-Goals
@@ -38,6 +40,7 @@ Employees and managers interact with time off through this microservice, not dir
 - Support JWT authentication and role-based authorization.
 - Support local development with SQLite while keeping the persistence model portable to a production relational database.
 - Keep HCM integration, workflow orchestration, policy validation, and persistence concerns cleanly separated.
+- Support multiple HCM platforms through a vendor-neutral adapter contract; v1 ships Workday only, with provider selection and factory indirection completed in Phase 3 (see `docs/spec.md` §13).
 
 ### 2.2 Non-Goals
 
@@ -81,8 +84,8 @@ The service consists of:
 - Authentication and authorization layer.
 - Domain services for requests, approvals, balances, policies, and notifications.
 - Persistence layer using Prisma.
-- HCM batch integration client.
-- HCM realtime integration client.
+- HCM integration layer: vendor-neutral batch and realtime client contract (`HcmClient`) with pluggable per-provider adapters; v1 production adapter is Workday Absence Management v5.
+- HCM provider factory (`HCM_PROVIDER`) resolving the active adapter at runtime (Phase 3).
 - Cron-based background job scheduler for nightly sync and hourly HCM approval retries.
 - Audit and integration event logging.
 
@@ -112,7 +115,7 @@ The service consists of:
 - Approve transitions to `approved_pending_hcm_update` when the HCM write cannot complete; an hourly background job retries the HCM post for up to 24 hours before auto-rejecting.
 - Cancel of approved entries requires successful HCM realtime writes; those operations fail safely when HCM is unavailable unless a defined compensating flow applies.
 - Route handlers stay thin and delegate business rules to services.
-- HCM-specific logic is isolated behind adapters.
+- HCM-specific logic is isolated behind per-provider adapters that implement a shared vendor-neutral contract; domain services, routes, and jobs depend on the contract only—not on Workday or other vendor modules directly (Phase 3 enforces factory indirection; see §7.1).
 - Database design avoids SQLite-only assumptions.
 
 ---
@@ -483,7 +486,31 @@ Audit logs must not include email values, sensitive HCM payloads, credentials, o
 
 ## 7. Integration Requirements
 
-### 7.1 HCM Integration Surfaces
+### 7.1 HCM Adapter Abstraction (Multi-Provider)
+
+The microservice must integrate with customer HCM platforms (Workday, SAP SuccessFactors, and others) without embedding vendor-specific logic in domain services. All HCM I/O is mediated by a **vendor-neutral adapter contract**; each supported platform implements that contract in an isolated adapter module.
+
+**Requirements:**
+
+| Concern | Requirement |
+|---|---|
+| **Contract** | Domain services, routes, and background jobs depend on `HcmClient` and shared neutral types (employee snapshots, balance rows, accounting write payloads). Vendor HTTP clients, payload shapes, and auth live only inside adapter modules. |
+| **Provider selection** | The active adapter is resolved at startup from `HCM_PROVIDER` (default `workday` for v1). Invalid values fail fast. Implementation detail: `createHcmClient()` in `hcm.factory.ts` (`docs/spec.md` §10.0). |
+| **Capabilities** | Each adapter exposes capability metadata (e.g. batch sync strategy, preflight validation, webhook ingest, accounting writes) so domain code can use optional HCM features without scattering provider checks through services. |
+| **Error mapping** | Vendor error codes map to stable service errors (`HCM_VALIDATION_ERROR`, `HCM_INSUFFICIENT_BALANCE`, `HCM_UNAVAILABLE`, …) inside the adapter—not in domain services. |
+| **Workflow invariance** | Adapter choice does not change local approval workflow ownership. Submit/reject remain local-only; HCM receives accounting writes after local approval and on cancel of approved entries only. Nightly sync never imports HCM approval workflow state regardless of provider. |
+| **Extension** | Adding a new HCM platform requires a new adapter + factory registration and provider-specific configuration—not changes to leave-request, approval, or balance domain logic. |
+
+**Phasing:**
+
+| Phase | Scope |
+|---|---|
+| Phase 1–2 | Workday is the sole production adapter (`HCM_PROVIDER=workday`). Domain code may call Workday through `HcmClient`; routes/jobs may still import the Workday adapter directly until Phase 3 refactor. |
+| Phase 3 | Provider factory, capability model, and `StubAdapter` for automated tests and future provider scaffolding. All routes and jobs import `createHcmClient` from the factory only. SAP SuccessFactors and other targets are out of Phase 3 implementation scope but must be addable without domain changes. |
+
+**Reference implementation:** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`). Detailed contract, capabilities interface, and adapter layout: `docs/spec.md` §10.0–§10.1.
+
+### 7.2 HCM Integration Surfaces
 
 The service uses two HCM integration modes. For v1, the concrete HCM adapter target is **Workday Absence Management v5**, defined in `docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`.
 
@@ -496,13 +523,13 @@ Workday Absence Management v5 does **not** expose a single batch-corpus endpoint
 
 Optional webhooks may trigger early balance or master-data reconciliation, but they do not replace the nightly batch sync and must not drive local approval workflow state.
 
-### 7.2 Workday Absence Management v5 Realtime API
+### 7.3 Workday Absence Management v5 Realtime API
 
 **Service base path:** `https://{tenantHostname}/absenceManagement/v5`
 
 **Worker path parameter:** `{workerWID}` is the Workday worker ID stored locally as `external_employee_id`.
 
-#### 7.2.1 Realtime Endpoint Inventory
+#### 7.3.1 Realtime Endpoint Inventory
 
 | Purpose | Method | Workday endpoint |
 |---|---|---|
@@ -518,7 +545,7 @@ Optional webhooks may trigger early balance or master-data reconciliation, but t
 
 Prompt/value endpoints such as `GET /values/timeOff/status/` may be used to resolve Workday status WIDs during adapter implementation when verifying posted accounting entries. They must not be used as an approval-workflow source of truth.
 
-#### 7.2.2 Prescribed Workday Approval Post Flow
+#### 7.3.2 Prescribed Workday Approval Post Flow
 
 Workday documents time-off submission as a three-step flow. The adapter should follow it at **approval** time unless local defensive validation already covers the same checks. Submit does not call Workday to create a time-off entry.
 
@@ -538,7 +565,7 @@ Optional request fields include `position.id`, `reason.id`, `comment`, and Workd
 
 On success, persist returned Workday identifiers as HCM accounting references, including time-off entry IDs from the response `days[]` collection and any event metadata needed for later correction.
 
-#### 7.2.3 Cancel and Correction Mapping
+#### 7.3.3 Cancel and Correction Mapping
 
 Workday corrections use `POST /workers/{workerWID}/correctTimeOffEntry` with:
 
@@ -553,7 +580,7 @@ v1 adapter requirements:
 - Do not use HCM REST approve/deny endpoints, HCM business-process polling, or nightly sync to drive local approval workflow state. Approval UX remains entirely in the microservice; HCM receives accounting writes only after local approval.
 - Optional `timeOffDetails` reads may verify that a posted entry exists after approve or that a correction removed an entry after cancel-of-approved. They must not change local approval workflow status.
 
-#### 7.2.4 Workday Entry Status Semantics
+#### 7.3.4 Workday Entry Status Semantics
 
 Workday time-off entry statuses exposed by `timeOffDetails` include **Approved**, **Submitted**, **Not Submitted**, and **Sent Back**. These values describe HCM accounting-entry state after a write, not microservice approval workflow state.
 
@@ -571,13 +598,13 @@ Optional post-write verification may use HCM entry reads only to confirm account
 
 Do not use HCM **Sent Back**, **Denied**, or **Terminated** statuses observed outside this service's write flow to approve, reject, or reroute locally managed requests.
 
-#### 7.2.5 Request-Time Adapter Behavior
+#### 7.3.5 Request-Time Adapter Behavior
 
 For each leave operation:
 
 - Run local defensive validation first.
 - For submit, attempt `GET /balances?worker={workerWID}` and optional Workday preflight reads when configured. Do not call `requestTimeOff`. Persist local `pending` workflow state and a pending reservation ledger entry when validation passes, using HCM balance data when available and local working-copy/ledger data when HCM reads fail.
-- For approve, retry balance reads, optionally run Workday preflight reads, then call `requestTimeOff`. Finalize local `approved` state and confirmed ledger usage only after the Workday write succeeds. When the HCM realtime API is unavailable, transition to `approved_pending_hcm_update`, persist retry metadata, and rely on the hourly retry job for up to 24 hours before auto-rejecting.
+- For approve, retry balance reads, optionally run Workday preflight reads when the adapter reports `supportsPreflightValidation` and tenant config enables it, then call `requestTimeOff`. Finalize local `approved` state and confirmed ledger usage only after the Workday write succeeds. When the HCM realtime API is unavailable, transition to `approved_pending_hcm_update`, persist retry metadata, and rely on the hourly retry job for up to 24 hours before auto-rejecting.
 - For reject, update local workflow state and release pending reservations without calling HCM.
 - For cancel of a pending or `approved_pending_hcm_update` request, update local workflow state and release pending reservations without calling HCM.
 - For cancel of an approved HCM entry, call `correctTimeOffEntry` with `delete=true`, then append a local ledger entry that inverts the approved usage.
@@ -586,7 +613,7 @@ For each leave operation:
 - Map Workday validation errors to stable service error codes.
 - Refresh affected balance rows from `GET /balances?worker={workerWID}` when Workday returns fresh balance context after approve or cancel of approved entries.
 
-#### 7.2.6 Workday Error Mapping
+#### 7.3.6 Workday Error Mapping
 
 Map common Workday validation codes to service errors:
 
@@ -602,7 +629,7 @@ Map common Workday validation codes to service errors:
 
 Log Workday `error`, `errors[]`, and `code` values in integration events without storing sensitive payloads in audit snapshots.
 
-### 7.3 Nightly Workday Batch Sync Sources
+### 7.4 Nightly Workday Batch Sync Sources
 
 For Workday v1, nightly/bootstrap sync should aggregate **employee and time-off master data only**:
 
@@ -618,7 +645,7 @@ Nightly sync must **not** import HCM approval queues, pending manager actions, b
 
 Employee snapshot fields such as email, manager, and department may require complementary Workday services outside Absence Management v5. Those fields remain part of the TRD employee snapshot, but their Workday source APIs are tenant-specific and may be documented separately.
 
-### 7.4 Multi-Writer HCM Assumption
+### 7.5 Multi-Writer HCM Assumption
 
 The service is not the only writer to HCM. Balances may change because of:
 
@@ -630,7 +657,7 @@ The service is not the only writer to HCM. Balances may change because of:
 
 The nightly sync reconciles the local time-off working copy with HCM's current state. Workflow-owned records are never overwritten by batch data. If external HCM activity changes a final balance without a corresponding local workflow entry, the service records a local sync adjustment entry so the local ledger-derived balance matches HCM.
 
-### 7.5 Conflict Rules
+### 7.6 Conflict Rules
 
 - HCM batch data overwrites the local time-off working copy.
 - HCM batch data overwrites employee snapshot fields.
@@ -983,7 +1010,7 @@ Expected `source` values include `workflow`, `hcm_realtime_response`, and `hcm_n
 
 - Fastify plugins should handle Prisma registration, JWT verification, route grouping, and request context.
 - Route handlers should be thin.
-- HCM adapters should hide vendor-specific payloads from domain services.
+- HCM adapters should hide vendor-specific payloads from domain services; routes and jobs must obtain adapters through the provider factory, not vendor modules (Phase 3).
 - JSON:API serialization should be centralized.
 - Policy and validation logic should be testable outside route handlers.
 
@@ -993,7 +1020,7 @@ The service must emit structured logs and metrics for:
 
 - Request latency.
 - Error rates.
-- HCM realtime call success and failure counts by operation.
+- HCM realtime call success and failure counts by provider and operation.
 - Nightly sync success and failure counts.
 - Sync duration, imported row counts, and staleness.
 - HCM approval retry success and failure counts.
@@ -1024,6 +1051,7 @@ Health endpoints:
 ## 13. Assumptions
 
 - Workday Absence Management v5 is the v1 HCM adapter reference (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`).
+- HCM integration follows the multi-provider adapter abstraction in §7.1; Phase 3 completes factory indirection and capability metadata. Additional HCM platforms (e.g. SAP SuccessFactors) are supported by adding adapters, not by changing domain workflow logic.
 - Workday exposes realtime write APIs through `requestTimeOff` (at approval) and `correctTimeOffEntry` (at cancel of approved entries), plus read APIs for balances, eligible absence types, valid dates, and time-off details.
 - Submit creates local pending workflow state only; `requestTimeOff` is called at approval time, not at submit.
 - When HCM is unavailable during approval, requests enter `approved_pending_hcm_update` and are retried hourly for up to 24 hours before auto-rejection.
@@ -1054,7 +1082,8 @@ Health endpoints:
 | HCM realtime outage | Workday approval post or approved-entry correction cannot complete at first attempt; submit/reject may continue locally | Transition approved requests to `approved_pending_hcm_update`, retry hourly for 24 hours, auto-reject and release reservations when retries are exhausted, alert operators |
 | Workday approval gap | Absence Management v5 has no REST approve/deny endpoint used by this service | Keep all approval workflow in the microservice; post accounting entries with `requestTimeOff` only after local approval; do not reconcile local workflow from HCM business-process status |
 | HCM validation gaps | HCM may accept or reject unexpected payloads | Defensive local validation, stable error mapping, reconciliation logs |
-| Dimensional balance complexity | Wrong dimension matching can cause validation errors | Normalize filing dimensions, validate against local working copy, test HCM adapter mappings |
+| Dimensional balance complexity | Wrong dimension matching can cause validation errors | Normalize filing dimensions, validate against local working copy, test HCM adapter mappings per provider |
+| Multi-provider adapter drift | New HCM adapter may diverge from contract or omit capability flags | Factory + capability tests (IT-3.8–IT-3.9); stub adapter exercises full workflow path in CI |
 | SQLite write concurrency | Development database may not reflect production concurrency | Keep schema portable and plan production relational database migration |
 | JSON:API complexity | Serialization and error handling are more involved | Centralize serializers, response schemas, and error builders |
 | PII handling | Email is stored locally | Encrypt where supported, redact logs and audits, support erasure workflows |
@@ -1091,6 +1120,7 @@ The implementation is acceptable when:
 - Nightly sync is idempotent, auditable, observable, and manually triggerable by authorized operators.
 - HCM outages do not block reads of existing workflow state or last-synced balances, and do not block local submit or reject when local validation passes. Approve may defer HCM writes into `approved_pending_hcm_update` with hourly retries for up to 24 hours; cancel-of-approved HCM writes still fail safely when HCM is unavailable unless a defined compensating flow applies.
 - Audit logs capture workflow and integration events without leaking email, credentials, or sensitive HCM payloads.
+- Domain services depend on the vendor-neutral HCM adapter contract only; Phase 3 verifies that routes and jobs resolve adapters through `HCM_PROVIDER` factory indirection with no direct vendor imports (see §7.1, `docs/spec.md` IT-3.8–IT-3.9).
 
 ---
 
@@ -1151,9 +1181,11 @@ Each scenario maps to TRD acceptance criteria (§15), an automated test identifi
 | TS-28 | HCM outage: reads and last-synced balances remain available | §15 bullet 23 | Partial (mock) | Stop HCM; GET balances and leave-requests still 200 |
 | TS-29 | `EMPLOYEE_NOT_FOUND` when worker not yet synced | §14 risks | §14.2 cross-cutting | Submit before employee appears in snapshot |
 | TS-30 | Multi-step / HR / auto-approval routing from synced policy | §6.7 | IT-3.6 (Phase 3) | Policy with 2-step chain; verify level gating |
-| TS-31 | Workday preflight reads at approve when enabled | §6.5 | IT-3.7 (Phase 3) | Enable `WORKDAY_PREFLIGHT_ENABLED`; approve and inspect HCM call log |
-| TS-32 | HCM webhook triggers master-data refresh only (no approval mutation) | §7.1 | IT-3.1–3.2 (Phase 3) | Send webhook; confirm balances refresh, requests unchanged |
+| TS-31 | Workday preflight reads at approve when adapter supports preflight and config enables it | §6.5, §7.1 | IT-3.7 (Phase 3) | Enable `WORKDAY_PREFLIGHT_ENABLED`; approve and inspect HCM call log |
+| TS-32 | HCM webhook triggers master-data refresh only (no approval mutation) | §7.2 | IT-3.1–3.2 (Phase 3) | Send webhook; confirm balances refresh, requests unchanged |
 | TS-33 | Metrics and staleness visibility in operational responses | §11.6 | IT-3.2–3.4 (Phase 3) | Inspect `/metrics` and sync-status staleness fields |
+| TS-34 | HCM provider factory: `workday` and `stub` adapters; no direct vendor imports from routes/jobs | §7.1 | IT-3.8 (Phase 3) | Run integration suite with `HCM_PROVIDER=stub`; confirm full workflow path |
+| TS-35 | Adapter capability branching (preflight, webhook) without provider checks in domain services | §7.1 | IT-3.9 (Phase 3) | Disable preflight capability; confirm approve skips optional HCM reads |
 
 **Coverage legend:** *Automated* references map to `docs/spec.md` IT- IDs and `tests/` suites and are the release gate. *Optional manual QA* suggestions help exploratory testing but are not required to ship. Scenarios marked *Phase 3* or *planned* remain gated on automated tests landing or explicit product waiver.
 
@@ -1229,7 +1261,8 @@ The following domain logic must remain testable outside HTTP route handlers (see
 - Leave duration, partial-day, holiday exclusion, and overlap detection.
 - Balance read model: ledger sum + pending reservations + HCM snapshot overlay.
 - Ledger append idempotency and sync-adjustment reconciliation.
-- Workday error code → stable JSON:API error code mapping.
+- HCM provider factory resolution and adapter capability branching (Phase 3).
+- Workday (and future adapter) error code → stable JSON:API error code mapping.
 - JSON:API document and pagination builders.
 - Audit snapshot redaction (no email).
 - Notification payload construction from snapshot email.
@@ -1314,7 +1347,7 @@ Beyond checklist execution, QA may probe:
 - **Clock skew:** requests starting in the past or far future; timezone boundaries on dates.
 - **Large payloads:** long reason text, maximum date ranges.
 - **Correlation IDs:** present in responses and traceable in logs for a failed approve.
-- **Phase 3 (when enabled):** multi-step approval order, auto-approve rules, webhook duplicate delivery, preflight validation failures.
+- **Phase 3 (when enabled):** multi-step approval order, auto-approve rules, webhook duplicate delivery, preflight validation failures, HCM provider factory and stub adapter runs.
 
 ### 16.8 Release Gate
 
@@ -1322,7 +1355,7 @@ A release candidate is test-complete when:
 
 1. All **Phase 1 and Phase 2** automated scenarios (TS-01 through TS-29, excluding Phase 3-only rows) pass in CI.
 2. Every §15 acceptance criterion has at least one passing **automated** verification (unit, integration, or contract tests).
-3. Known gaps (Phase 3 scenarios TS-30 through TS-33) are explicitly waived or scheduled with product sign-off.
+3. Known gaps (Phase 3 scenarios TS-30 through TS-35) are explicitly waived or scheduled with product sign-off.
 
 Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended for major HCM or auth changes but are **not** release blockers. Implementation partners should update the *Automated* column in §16.2 when new tests land.
 
@@ -1334,3 +1367,4 @@ Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended 
 |---|---|---|
 | 1.0 | 2026-06-08 | Added §16 Testing Requirements: scenario traceability matrix, workflow scenarios, manual QA checklists, authorization matrix, and release gate |
 | 1.1 | 2026-06-08 | Clarified manual QA checklists are optional guidance; release gate is automated tests only |
+| 1.2 | 2026-06-08 | §7.1 HCM adapter abstraction (multi-provider); renumbered §7.2–§7.6; Phase 3 test scenarios TS-34–TS-35; aligned with `docs/spec.md` v1.9 |
