@@ -113,7 +113,7 @@ Copy [`.env.example`](.env.example) to `.env`. Key variables:
 | `JWT_AUDIENCE` | Expected audience (default `timeoff-api`) |
 | `WORKDAY_TENANT_HOSTNAME` | Mock: `127.0.0.1:4001` or `localhost:4001` |
 | `HCM_MOCK_MODE` | `true` for local dev (skips real OAuth) |
-| `LOG_LEVEL` | Pino log level (default `info`) |
+| `LOG_LEVEL` | Pino log level for structured JSON logs and HTTP request logging (default `info`; use `debug` for more detail) |
 
 See [`docs/spec.md` §4](docs/spec.md) for the full list including cron schedules.
 
@@ -158,8 +158,8 @@ timeoff-service/
 ├── docs/                # spec.md, trd.md, Workday OAS
 ├── prisma/              # schema, migrations, seed
 ├── src/
-│   ├── app.ts           # Fastify bootstrap
-│   ├── routes/v1/       # HTTP routes
+│   ├── main.ts          # NestJS bootstrap
+│   ├── api/             # HTTP controllers
 │   ├── services/        # Domain logic
 │   ├── integrations/hcm/# Workday adapter
 │   └── jobs/            # Cron (nightly sync, HCM retry)

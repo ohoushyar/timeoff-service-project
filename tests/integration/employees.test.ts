@@ -20,7 +20,7 @@ describe('IT-1.3 GET /api/v1/employees/{id}', () => {
 
   it('returns 200 for self with employees type and no PII attributes', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.aliceId}`,
       headers: authHeaders(token, ''),
@@ -37,7 +37,7 @@ describe('IT-1.3 GET /api/v1/employees/{id}', () => {
 
   it('returns 200 for manager viewing direct report', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.aliceId}`,
       headers: authHeaders(token, ''),
@@ -48,7 +48,7 @@ describe('IT-1.3 GET /api/v1/employees/{id}', () => {
 
   it('returns 403 for unrelated employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.bobId}`,
       headers: authHeaders(token, ''),
@@ -58,7 +58,7 @@ describe('IT-1.3 GET /api/v1/employees/{id}', () => {
 
   it('returns 404 when mapping is missing', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/employees/00000000-0000-4000-8000-000000000099',
       headers: authHeaders(token, ''),

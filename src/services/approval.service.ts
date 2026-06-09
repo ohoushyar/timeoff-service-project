@@ -266,7 +266,7 @@ function buildRequestTimeOffDays(
     endDate: Date;
     durationDays: { toString(): string };
     partialDayType: 'NONE' | 'AM' | 'PM' | 'HOURS';
-    partialDayHours: number | null;
+    partialDayHours: number | Decimal | null;
     dimensions: unknown;
     leaveType: { externalLeaveTypeId: string };
   },
@@ -279,7 +279,8 @@ function buildRequestTimeOffDays(
     durationDays: new Decimal(request.durationDays.toString()),
     timeOffTypeId: request.leaveType.externalLeaveTypeId,
     partialDayType: request.partialDayType,
-    partialDayHours: request.partialDayHours,
+    partialDayHours:
+      request.partialDayHours != null ? Number(request.partialDayHours) : null,
     holidays,
     location,
   });

@@ -20,7 +20,7 @@ describe('IT-1.7 GET /api/v1/policies', () => {
 
   it('returns 200 for hr_admin with synced policy resources', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/policies',
       headers: authHeaders(token, ''),
@@ -33,7 +33,7 @@ describe('IT-1.7 GET /api/v1/policies', () => {
 
   it('returns 403 for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/policies',
       headers: authHeaders(token, ''),

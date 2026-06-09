@@ -20,7 +20,7 @@ describe('IT-2.1 GET /api/v1/sync-runs', () => {
 
   it('returns 200 for hr_admin with paginated history ordered by startedAt desc', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/sync-runs?page[number]=1&page[size]=25',
       headers: authHeaders(token, ''),
@@ -39,7 +39,7 @@ describe('IT-2.1 GET /api/v1/sync-runs', () => {
 
   it('returns 403 for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/sync-runs',
       headers: authHeaders(token, ''),
@@ -62,7 +62,7 @@ describe('IT-2.2 GET /api/v1/sync-runs/{id}', () => {
   it('returns 200 with adjustment counts and correlation id', async () => {
     const run = await ctx.prisma.syncRun.findFirstOrThrow({ orderBy: { startedAt: 'desc' } });
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/sync-runs/${run.id}`,
       headers: authHeaders(token, ''),
@@ -74,7 +74,7 @@ describe('IT-2.2 GET /api/v1/sync-runs/{id}', () => {
 
   it('returns 404 for unknown run', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/sync-runs/00000000-0000-0000-0000-000000000000',
       headers: authHeaders(token, ''),

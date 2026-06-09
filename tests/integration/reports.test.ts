@@ -12,7 +12,7 @@ async function approveAliceRequest(
   dates: { start: string; end: string },
 ): Promise<void> {
   const employeeToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-  const createRes = await ctx.app.inject({
+  const createRes = await ctx.inject({
     method: 'POST',
     url: '/api/v1/leave-requests',
     headers: authHeaders(employeeToken),
@@ -26,7 +26,7 @@ async function approveAliceRequest(
   expect(createRes.statusCode).toBe(201);
   const requestId = createRes.json().data.id;
   const managerToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-  await ctx.app.inject({
+  await ctx.inject({
     method: 'POST',
     url: `/api/v1/leave-requests/${requestId}/approve`,
     headers: authHeaders(managerToken),
@@ -48,7 +48,7 @@ describe('IT-2.3 GET /api/v1/reports/leave-usage', () => {
 
   it('returns 200 for manager with meta.summary aggregates', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/reports/leave-usage?filter[startDate]=2029-01-01&filter[endDate]=2029-12-31',
       headers: authHeaders(token, ''),
@@ -61,7 +61,7 @@ describe('IT-2.3 GET /api/v1/reports/leave-usage', () => {
 
   it('returns 403 for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/reports/leave-usage',
       headers: authHeaders(token, ''),
@@ -76,7 +76,7 @@ describe('IT-2.4 GET /api/v1/reports/team-calendar', () => {
   beforeAll(async () => {
     ctx = await setupIntegrationContext();
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -96,7 +96,7 @@ describe('IT-2.4 GET /api/v1/reports/team-calendar', () => {
 
   it('returns 200 manager team view with date-range filter', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/reports/team-calendar?filter[startDate]=2029-04-01&filter[endDate]=2029-04-30',
       headers: authHeaders(token, ''),
@@ -120,7 +120,7 @@ describe('IT-2.5 GET /api/v1/reports/audit', () => {
 
   it('returns 200 for hr_admin with no email in rows', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/reports/audit',
       headers: authHeaders(token, ''),
@@ -133,7 +133,7 @@ describe('IT-2.5 GET /api/v1/reports/audit', () => {
 
   it('returns 403 for manager', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/reports/audit',
       headers: authHeaders(token, ''),

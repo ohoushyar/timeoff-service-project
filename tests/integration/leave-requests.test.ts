@@ -30,7 +30,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
 
   it('creates DRAFT when submit is false', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -47,7 +47,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
 
   it('submit creates PENDING with PENDING_RESERVATION ledger and no requestTimeOff call', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -70,7 +70,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
 
   it('returns 422 for insufficient balance', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -93,13 +93,13 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
       submit: true,
       dimensions: { locationId: 'US-NY' },
     });
-    await ctx.app.inject({
+    await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
       payload,
     });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -111,7 +111,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
 
   it('returns 422 for invalid dimensions', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -128,7 +128,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
 
   it('returns 403 when creating for another employee without HR role', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -145,7 +145,7 @@ describe('IT-1.8 POST /api/v1/leave-requests', () => {
   it('submit with HCM balance read failure still creates pending workflow', async () => {
     setMockScenario({ simulateUnavailable: true });
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -170,7 +170,7 @@ describe('IT-1.9 GET /api/v1/leave-requests', () => {
   beforeAll(async () => {
     ctx = await setupIntegrationContext();
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -190,7 +190,7 @@ describe('IT-1.9 GET /api/v1/leave-requests', () => {
 
   it('returns own requests only for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token, ''),
@@ -202,7 +202,7 @@ describe('IT-1.9 GET /api/v1/leave-requests', () => {
 
   it('manager sees team requests with filter and pagination', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/leave-requests?filter[status]=pending&filter[employeeId]=' + ctx.aliceId + '&page[number]=1&page[size]=10',
       headers: authHeaders(token, ''),
@@ -220,7 +220,7 @@ describe('IT-1.10 GET /api/v1/leave-requests/{id}', () => {
   beforeAll(async () => {
     ctx = await setupIntegrationContext();
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -244,7 +244,7 @@ describe('IT-1.10 GET /api/v1/leave-requests/{id}', () => {
     const carolToken = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
 
     for (const token of [aliceToken, bobToken, carolToken]) {
-      const res = await ctx.app.inject({
+      const res = await ctx.inject({
         method: 'GET',
         url: `/api/v1/leave-requests/${requestId}`,
         headers: authHeaders(token, ''),
@@ -255,7 +255,7 @@ describe('IT-1.10 GET /api/v1/leave-requests/{id}', () => {
 
   it('returns 403 for unrelated employee', async () => {
     const carolEmployeeToken = ctx.token('employee', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/leave-requests/${requestId}`,
       headers: authHeaders(carolEmployeeToken, ''),
@@ -265,7 +265,7 @@ describe('IT-1.10 GET /api/v1/leave-requests/{id}', () => {
 
   it('returns 404 for unknown id', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/leave-requests/00000000-0000-4000-8000-000000000099',
       headers: authHeaders(token, ''),
@@ -287,7 +287,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
 
   it('updates draft fields', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -301,7 +301,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
     });
     const id = createRes.json().data.id;
 
-    const patchRes = await ctx.app.inject({
+    const patchRes = await ctx.inject({
       method: 'PATCH',
       url: `/api/v1/leave-requests/${id}`,
       headers: authHeaders(token),
@@ -313,7 +313,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
 
   it('returns 422 when patching non-draft', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -326,7 +326,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
     });
     const id = createRes.json().data.id;
 
-    const patchRes = await ctx.app.inject({
+    const patchRes = await ctx.inject({
       method: 'PATCH',
       url: `/api/v1/leave-requests/${id}`,
       headers: authHeaders(token),
@@ -338,7 +338,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
   it('returns 403 for non-owner without HR', async () => {
     const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
     const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(aliceToken),
@@ -352,7 +352,7 @@ describe('IT-1.11 PATCH /api/v1/leave-requests/{id}', () => {
     expect(createRes.statusCode).toBe(201);
     const id = createRes.json().data.id;
 
-    const patchRes = await ctx.app.inject({
+    const patchRes = await ctx.inject({
       method: 'PATCH',
       url: `/api/v1/leave-requests/${id}`,
       headers: authHeaders(bobToken),
@@ -379,7 +379,7 @@ describe('IT-1.12 POST /api/v1/leave-requests/{id}/cancel', () => {
 
   it('cancels PENDING with RESERVATION_RELEASE and no HCM call', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -393,7 +393,7 @@ describe('IT-1.12 POST /api/v1/leave-requests/{id}/cancel', () => {
     const id = createRes.json().data.id;
     const callsBefore = getRequestTimeOffCallCount();
 
-    const cancelRes = await ctx.app.inject({
+    const cancelRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${id}/cancel`,
       headers: authHeaders(token, ''),

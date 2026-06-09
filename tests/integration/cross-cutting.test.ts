@@ -33,7 +33,7 @@ describe('IT-1.18 cross-cutting', () => {
 
   it('protected routes return 401 without JWT with JSON:API errors', async () => {
     for (const route of PROTECTED_ROUTES) {
-      const res = await ctx.app.inject({ method: route.method, url: route.url });
+      const res = await ctx.inject({ method: route.method, url: route.url });
       expect(res.statusCode).toBe(401);
       const body = res.json();
       expect(body.errors).toBeDefined();
@@ -53,7 +53,7 @@ describe('IT-1.18 cross-cutting', () => {
 
   it('JSON:API content type on representative endpoints', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/leave-types',
       headers: authHeaders(token, ''),
@@ -64,26 +64,25 @@ describe('IT-1.18 cross-cutting', () => {
 });
 
 describe('§14.2 EMPLOYEE_NOT_FOUND before sync', () => {
-  let app: Awaited<ReturnType<typeof buildTestApp>>;
+  let ctx: Awaited<ReturnType<typeof buildTestApp>>;
   let prisma: Awaited<ReturnType<typeof setupTestDb>>;
 
   beforeAll(async () => {
     prisma = await setupTestDb();
-    app = await buildTestApp({ DATABASE_URL: getTestDatabaseUrl() }, prisma);
+    ctx = await buildTestApp({ DATABASE_URL: getTestDatabaseUrl() }, prisma);
   });
 
   afterAll(async () => {
-    await app.close();
+    await ctx.app.close();
     await teardownTestDb(prisma);
   });
 
   it('returns 404 when employee mapping missing before sync', async () => {
-    const token = signToken(app, { sub: 'admin', roles: ['hr_admin'] });
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/v1/employees/00000000-0000-4000-8000-000000000099',
-      headers: authHeaders(token, ''),
-    });
-    expect(res.statusCode).toBe(404);
+    const token = signToken(ctx.jwt, { sub: 'admin', roles: ['hr_admin'] });
+    const res = await ctx.agent
+      .get('/api/v1/employees/00000000-0000-4000-8000-000000000099')
+      .set('authorization', `Bearer ${token}`)
+      .set('accept', JSON_API);
+    expect(res.status).toBe(404);
   });
 });

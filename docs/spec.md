@@ -4,7 +4,7 @@
 **Version:** 2.0  
 **Status:** Final  
 **Source:** Derived from [trd.md](./trd.md) (TRD v1.2)  
-**Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
+**Stack:** Node.js / TypeScript · NestJS · Prisma · SQLite (dev) · JWT · cron  
 **HCM adapter (v1):** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`)
 
 ---
@@ -107,26 +107,24 @@ timeoff-service/
 │   ├── migrations/
 │   └── seed.ts
 ├── src/
-│   ├── app.ts                    # Fastify bootstrap
+│   ├── main.ts                   # NestJS bootstrap
+│   ├── app.module.ts             # Root module
 │   ├── config/
 │   │   └── env.ts                # Validated environment config
-│   ├── plugins/
-│   │   ├── prisma.ts
-│   │   ├── jwt.ts
-│   │   ├── jsonapi.ts
-│   │   └── correlation-id.ts
-│   ├── routes/
-│   │   └── v1/
-│   │       ├── employees.ts
-│   │       ├── sync.ts
-│   │       ├── sync-runs.ts
-│   │       ├── leave-types.ts
-│   │       ├── policies.ts
-│   │       ├── leave-requests.ts
-│   │       ├── approvals.ts
-│   │       ├── balances.ts
-│   │       ├── reports.ts
-│   │       └── health.ts
+│   ├── api/                      # HTTP controllers (flat ApiModule)
+│   │   ├── health.controller.ts
+│   │   ├── employees.controller.ts
+│   │   ├── sync.controller.ts
+│   │   ├── sync-runs.controller.ts
+│   │   ├── leave-types.controller.ts
+│   │   ├── policies.controller.ts
+│   │   ├── leave-requests.controller.ts
+│   │   ├── approvals.controller.ts
+│   │   ├── balances.controller.ts
+│   │   └── reports.controller.ts
+│   ├── auth/                     # JWT guards, role guards, authorization
+│   ├── common/                   # Correlation ID middleware, JSON:API filter
+│   ├── prisma/                   # PrismaService module
 │   ├── services/
 │   │   ├── employee.service.ts
 │   │   ├── sync.service.ts
@@ -856,7 +854,7 @@ Algorithm: HS256 (dev); support RS256 in production via config without API contr
 
 \** Scoped to self (employee) or reporting chain (manager).
 
-Authorization enforced via Fastify `preHandler` guards before service calls.
+Authorization enforced via NestJS guards (`JwtAuthGuard`, `RolesGuard`) before service calls.
 
 ---
 
@@ -1267,7 +1265,7 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 ## 13. Implementation Phases
 
 ### Phase 1 — Foundation (MVP)
-- Fastify app, Prisma schema, JWT auth, JSON:API plugin
+- NestJS app, Prisma schema, JWT auth, JSON:API error handling
 - Minimal `employee_hcm_mappings` + nightly Workday batch sync (bootstrap + cron); master data only, no HCM approval workflow import
 - Time-off working copy (types, policies, dimensional balances)
 - Local balance ledger with pending reservations and sync adjustments

@@ -1,7 +1,9 @@
 import { expect } from 'vitest';
-import type { FastifyInstance } from 'fastify';
+import type { INestApplication } from '@nestjs/common';
+import type { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 import { Decimal } from 'decimal.js';
+import type { SuperTest, Test } from 'supertest';
 import { buildTestApp, signToken, JSON_API } from './app.js';
 import { setupTestDb, teardownTestDb, getTestDatabaseUrl } from './db.js';
 import {
@@ -11,11 +13,23 @@ import {
 import type { Role } from '../../src/auth/roles.js';
 import { dimensionsHash } from '../../src/lib/dimensions.js';
 import { toJsonValue } from '../../src/lib/json.js';
+import { HcmApprovalRetryService } from '../../src/jobs/hcm-approval-retry.service.js';
+import { AppConfigService } from '../../src/config/app-config.service.js';
+import { getEnv } from '../../src/config/env.js';
 
 export { JSON_API };
 
+export interface InjectResponse {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+  json: () => unknown;
+}
+
 export interface IntegrationContext {
-  app: FastifyInstance;
+  app: INestApplication;
+  agent: SuperTest<Test>;
+  jwt: JwtService;
   prisma: PrismaClient;
   mockServer: Awaited<ReturnType<typeof startWorkdayMock>>;
   aliceId: string;
@@ -23,12 +37,19 @@ export interface IntegrationContext {
   carolId: string;
   leaveTypeId: string;
   token: (role: Role, opts?: { sub?: string; employeeId?: string }) => string;
+  inject: (opts: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    payload?: unknown;
+  }) => Promise<InjectResponse>;
+  runHcmApprovalRetry: () => Promise<void>;
 }
 
 export async function setupIntegrationContext(mockPort = 4011): Promise<IntegrationContext> {
   const mockServer = await startWorkdayMock(mockPort);
   const prisma = await setupTestDb();
-  const app = await buildTestApp(
+  const { app, agent, jwt } = await buildTestApp(
     {
       DATABASE_URL: getTestDatabaseUrl(),
       WORKDAY_TENANT_HOSTNAME: `127.0.0.1:${mockPort}`,
@@ -36,8 +57,33 @@ export async function setupIntegrationContext(mockPort = 4011): Promise<Integrat
     prisma,
   );
 
-  const adminToken = signToken(app, { sub: 'admin', roles: ['system_admin'] });
-  const syncRes = await app.inject({
+  const inject = async (opts: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    payload?: unknown;
+  }): Promise<InjectResponse> => {
+    const method = opts.method.toLowerCase() as 'get' | 'post' | 'patch' | 'put' | 'delete';
+    let req = agent[method](opts.url);
+    if (opts.headers) {
+      for (const [key, value] of Object.entries(opts.headers)) {
+        req = req.set(key, value);
+      }
+    }
+    if (opts.payload !== undefined) {
+      req = req.send(opts.payload);
+    }
+    const res = await req;
+    return {
+      statusCode: res.status,
+      headers: res.headers as Record<string, string | string[] | undefined>,
+      body: typeof res.text === 'string' ? res.text : JSON.stringify(res.body),
+      json: () => res.body,
+    };
+  };
+
+  const adminToken = signToken(jwt, { sub: 'admin', roles: ['system_admin'] });
+  const syncRes = await inject({
     method: 'POST',
     url: '/api/v1/sync/time-off',
     headers: { authorization: `Bearer ${adminToken}` },
@@ -58,14 +104,20 @@ export async function setupIntegrationContext(mockPort = 4011): Promise<Integrat
   const leaveType = await prisma.leaveType.findFirstOrThrow();
 
   const token = (role: Role, opts?: { sub?: string; employeeId?: string }) =>
-    signToken(app, {
+    signToken(jwt, {
       sub: opts?.sub ?? role,
       roles: [role],
       employeeId: opts?.employeeId,
     });
 
+  const configService = { env: getEnv() } as AppConfigService;
+  const runHcmApprovalRetry = () =>
+    new HcmApprovalRetryService(prisma, configService).run();
+
   return {
     app,
+    agent,
+    jwt,
     prisma,
     mockServer,
     aliceId: alice.id,
@@ -73,11 +125,14 @@ export async function setupIntegrationContext(mockPort = 4011): Promise<Integrat
     carolId: carol.id,
     leaveTypeId: leaveType.id,
     token,
+    inject,
+    runHcmApprovalRetry,
   };
 }
 
-export async function teardownIntegrationContext(ctx: IntegrationContext): Promise<void> {
+export async function teardownIntegrationContext(ctx?: IntegrationContext): Promise<void> {
   resetMockMetrics();
+  if (!ctx) return;
   await ctx.app.close();
   await ctx.mockServer.close();
   await teardownTestDb(ctx.prisma);
@@ -188,5 +243,3 @@ export async function seedHcmPendingRequest(
 
   return { requestId: request.id, approvalId: approval.id };
 }
-
-// re-export expect for helper modules that need it in assertJsonApi - tests import expect from vitest

@@ -20,7 +20,7 @@ describe('IT-2.10 Notifications', () => {
 
   it('creates workflow notifications with snapshot email in payload', async () => {
     const employeeToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(employeeToken),
@@ -41,7 +41,7 @@ describe('IT-2.10 Notifications', () => {
     expect((submitted!.payload as Record<string, unknown>).email).toBe('alice.employee@example.com');
 
     const managerToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const approveRes = await ctx.app.inject({
+    const approveRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(managerToken),
@@ -54,7 +54,7 @@ describe('IT-2.10 Notifications', () => {
     });
     expect(approved).toBeTruthy();
 
-    const rejectCreate = await ctx.app.inject({
+    const rejectCreate = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(employeeToken),
@@ -68,7 +68,7 @@ describe('IT-2.10 Notifications', () => {
     expect(rejectCreate.statusCode).toBe(201);
     const rejectId = rejectCreate.json().data.id;
 
-    const rejectRes = await ctx.app.inject({
+    const rejectRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${rejectId}/reject`,
       headers: authHeaders(managerToken),

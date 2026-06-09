@@ -12,14 +12,13 @@ import {
   getRequestTimeOffCallCount,
   setMockScenario,
 } from '../../tools/workday-mock/server.js';
-import { runHcmApprovalRetryJob } from '../../src/jobs/hcm-approval-retry.job.js';
 
 async function submitAliceRequest(
   ctx: IntegrationContext,
   dates: { start: string; end: string },
 ): Promise<string> {
   const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-  const res = await ctx.app.inject({
+  const res = await ctx.inject({
     method: 'POST',
     url: '/api/v1/leave-requests',
     headers: authHeaders(token),
@@ -48,7 +47,7 @@ describe('IT-1.13 GET /api/v1/approvals/pending', () => {
 
   it('returns pending step for assigned manager', async () => {
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/approvals/pending',
       headers: authHeaders(token, ''),
@@ -59,7 +58,7 @@ describe('IT-1.13 GET /api/v1/approvals/pending', () => {
 
   it('returns 403 for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/approvals/pending',
       headers: authHeaders(token, ''),
@@ -86,7 +85,7 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
   it('approves with requestTimeOff, CONFIRMED_USAGE, and hcmReferenceId', async () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-02-01', end: '2028-02-03' });
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(token),
@@ -111,7 +110,7 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
     const usedDays = Number(approved.durationDays);
 
     const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const balanceRes = await ctx.app.inject({
+    const balanceRes = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.aliceId}/balances`,
       headers: authHeaders(aliceToken, ''),
@@ -134,7 +133,7 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-03-01', end: '2028-03-02' });
     setMockScenario({ simulateUnavailable: true });
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(token),
@@ -148,7 +147,7 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
   it('returns 403 for non-approver', async () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-04-01', end: '2028-04-02' });
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(token),
@@ -160,13 +159,13 @@ describe('IT-1.14 POST /api/v1/leave-requests/{id}/approve', () => {
   it('returns 422 for already terminal request', async () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-05-01', end: '2028-05-02' });
     const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    await ctx.app.inject({
+    await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/reject`,
       headers: authHeaders(bobToken),
       payload: { data: { type: 'approvals', attributes: {} } },
     });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(bobToken),
@@ -195,7 +194,7 @@ describe('IT-1.15 POST /api/v1/leave-requests/{id}/reject', () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-06-01', end: '2028-06-02' });
     const callsBefore = getRequestTimeOffCallCount();
     const token = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/reject`,
       headers: authHeaders(token),
@@ -214,7 +213,7 @@ describe('IT-1.15 POST /api/v1/leave-requests/{id}/reject', () => {
   it('returns 403 for non-approver', async () => {
     const requestId = await submitAliceRequest(ctx, { start: '2028-07-01', end: '2028-07-02' });
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/reject`,
       headers: authHeaders(token),
@@ -251,7 +250,7 @@ describe('§14.2 HCM approval retry workflow', () => {
       hcmRetryDeadlineAt: new Date(Date.now() + 86_400_000),
     });
 
-    await runHcmApprovalRetryJob(ctx.app);
+    await ctx.runHcmApprovalRetry();
 
     const request = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(request.status).toBe('APPROVED');
@@ -269,7 +268,7 @@ describe('§14.2 HCM approval retry workflow', () => {
       hcmRetryDeadlineAt: new Date(Date.now() - 60_000),
     });
 
-    await runHcmApprovalRetryJob(ctx.app);
+    await ctx.runHcmApprovalRetry();
 
     const request = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(request.status).toBe('REJECTED');
@@ -291,7 +290,7 @@ describe('§14.2 HCM approval retry workflow', () => {
       hcmRetryDeadlineAt: new Date(Date.now() - 60_000),
     });
 
-    await runHcmApprovalRetryJob(ctx.app);
+    await ctx.runHcmApprovalRetry();
 
     const notification = await ctx.prisma.notification.findFirst({
       where: { type: 'HCM_APPROVAL_SYNC_FAILED', recipientEmployeeId: ctx.aliceId },

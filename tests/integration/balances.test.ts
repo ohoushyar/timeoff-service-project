@@ -25,7 +25,7 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     const carolToken = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
 
     for (const token of [aliceToken, bobToken, carolToken]) {
-      const res = await ctx.app.inject({
+      const res = await ctx.inject({
         method: 'GET',
         url: `/api/v1/employees/${ctx.aliceId}/balances`,
         headers: authHeaders(token, ''),
@@ -46,7 +46,7 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
 
   it('returns 403 for unrelated employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.bobId}/balances`,
       headers: authHeaders(token, ''),
@@ -58,7 +58,7 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
     const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
 
-    const first = await ctx.app.inject({
+    const first = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(aliceToken),
@@ -72,14 +72,14 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     expect(first.statusCode).toBe(201);
     const firstId = first.json().data.id;
 
-    const cancelRes = await ctx.app.inject({
+    const cancelRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${firstId}/cancel`,
       headers: authHeaders(aliceToken, ''),
     });
     expect(cancelRes.statusCode).toBe(200);
 
-    const second = await ctx.app.inject({
+    const second = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(aliceToken),
@@ -93,7 +93,7 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     expect(second.statusCode).toBe(201);
     const secondId = second.json().data.id;
 
-    const approveRes = await ctx.app.inject({
+    const approveRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${secondId}/approve`,
       headers: authHeaders(bobToken),
@@ -104,7 +104,7 @@ describe('IT-1.16 GET /api/v1/employees/{id}/balances', () => {
     const approved = await ctx.prisma.leaveRequest.findUniqueOrThrow({ where: { id: secondId } });
     const usedDays = Number(approved.durationDays);
 
-    const balanceRes = await ctx.app.inject({
+    const balanceRes = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.aliceId}/balances`,
       headers: authHeaders(aliceToken, ''),
@@ -130,7 +130,7 @@ describe('IT-1.17 GET /api/v1/employees/{id}/balance-ledger', () => {
   beforeAll(async () => {
     ctx = await setupIntegrationContext();
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    await ctx.app.inject({
+    await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -149,7 +149,7 @@ describe('IT-1.17 GET /api/v1/employees/{id}/balance-ledger', () => {
 
   it('returns paginated workflow ledger entries', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.aliceId}/balance-ledger?page[number]=1&page[size]=20`,
       headers: authHeaders(token, ''),
@@ -170,7 +170,7 @@ describe('IT-1.17 GET /api/v1/employees/{id}/balance-ledger', () => {
 
   it('returns 403 for unrelated employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: `/api/v1/employees/${ctx.bobId}/balance-ledger`,
       headers: authHeaders(token, ''),

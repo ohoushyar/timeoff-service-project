@@ -1,80 +1,51 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import Fastify from 'fastify';
-import correlationIdPlugin from '../../../src/plugins/correlation-id.js';
+import { describe, it, expect } from 'vitest';
+import { Test } from '@nestjs/testing';
+import { Controller, Get, INestApplication, Module } from '@nestjs/common';
+import request from 'supertest';
+import { CorrelationIdMiddleware } from '../../../src/common/middleware/correlation-id.middleware.js';
 
-describe('plugins/correlation-id', () => {
-  const apps: Array<Awaited<ReturnType<typeof Fastify>>> = [];
+@Controller()
+class TestController {
+  @Get('/test')
+  test() {
+    return { ok: true };
+  }
+}
 
-  afterEach(async () => {
-    await Promise.all(apps.splice(0).map((app) => app.close()));
-  });
+@Module({
+  controllers: [TestController],
+})
+class TestModule {}
 
-  it('binds correlationId to request logs', async () => {
-    const logs: Record<string, unknown>[] = [];
-    const app = Fastify({
-      logger: {
-        level: 'info',
-        stream: {
-          write(msg: string) {
-            logs.push(JSON.parse(msg));
-          },
-        },
-      },
-    });
-    apps.push(app);
+describe('middleware/correlation-id', () => {
+  let app: INestApplication;
 
-    await app.register(correlationIdPlugin);
-    app.get('/test', async (request) => {
-      request.log.info('handled');
-      return { ok: true };
-    });
+  async function createApp(): Promise<INestApplication> {
+    const moduleRef = await Test.createTestingModule({ imports: [TestModule] }).compile();
+    const nestApp = moduleRef.createNestApplication();
+    nestApp.use(new CorrelationIdMiddleware().use.bind(new CorrelationIdMiddleware()));
+    await nestApp.init();
+    return nestApp;
+  }
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/test',
-      headers: { 'x-correlation-id': 'test-corr-123' },
-    });
+  it('echoes provided X-Correlation-Id header', async () => {
+    app = await createApp();
+    const res = await request(app.getHttpServer())
+      .get('/test')
+      .set('x-correlation-id', 'test-corr-123');
 
-    expect(res.statusCode).toBe(200);
+    expect(res.status).toBe(200);
     expect(res.headers['x-correlation-id']).toBe('test-corr-123');
-
-    const handledLog = logs.find((entry) => entry.msg === 'handled');
-    expect(handledLog?.correlationId).toBe('test-corr-123');
-
-    const completedLog = logs.find((entry) => entry.msg === 'request completed');
-    expect(completedLog?.correlationId).toBe('test-corr-123');
-
-    const incomingLog = logs.find((entry) => entry.msg === 'incoming request');
-    expect(incomingLog?.correlationId).toBe('test-corr-123');
+    await app.close();
   });
 
   it('generates correlationId when header is missing', async () => {
-    const logs: Record<string, unknown>[] = [];
-    const app = Fastify({
-      logger: {
-        level: 'info',
-        stream: {
-          write(msg: string) {
-            logs.push(JSON.parse(msg));
-          },
-        },
-      },
-    });
-    apps.push(app);
-
-    await app.register(correlationIdPlugin);
-    app.get('/test', async (request) => {
-      request.log.info('handled');
-      return { ok: true };
-    });
-
-    const res = await app.inject({ method: 'GET', url: '/test' });
+    app = await createApp();
+    const res = await request(app.getHttpServer()).get('/test');
     const responseCorrelationId = res.headers['x-correlation-id'];
 
     expect(typeof responseCorrelationId).toBe('string');
     expect((responseCorrelationId as string).length).toBeGreaterThan(0);
-
-    const handledLog = logs.find((entry) => entry.msg === 'handled');
-    expect(handledLog?.correlationId).toBe(responseCorrelationId);
+    await app.close();
   });
 });

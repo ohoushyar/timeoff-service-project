@@ -20,7 +20,7 @@ describe('IT-1.4 POST /api/v1/sync/time-off', () => {
 
   it('allows system_admin and upserts snapshot metadata', async () => {
     const token = ctx.token('system_admin', { sub: 'admin' });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(token, ''),
@@ -40,7 +40,7 @@ describe('IT-1.4 POST /api/v1/sync/time-off', () => {
 
   it('allows integration_client', async () => {
     const token = ctx.token('integration_client', { sub: 'integration-client' });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(token, ''),
@@ -52,14 +52,14 @@ describe('IT-1.4 POST /api/v1/sync/time-off', () => {
     const aliceToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
     const bobToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
 
-    const employeeRes = await ctx.app.inject({
+    const employeeRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(aliceToken, ''),
     });
     expect(employeeRes.statusCode).toBe(403);
 
-    const managerRes = await ctx.app.inject({
+    const managerRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(bobToken, ''),
@@ -72,7 +72,7 @@ describe('IT-1.4 POST /api/v1/sync/time-off', () => {
     const beforeLeaveTypes = await ctx.prisma.leaveType.count();
     const token = ctx.token('system_admin', { sub: 'admin' });
 
-    await ctx.app.inject({
+    await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(token, ''),
@@ -96,7 +96,7 @@ describe('IT-1.5 GET /api/v1/sync/status', () => {
 
   it('returns 200 for hr_admin with staleness and counts', async () => {
     const token = ctx.token('hr_admin', { sub: 'carol', employeeId: ctx.carolId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/sync/status',
       headers: authHeaders(token, ''),
@@ -111,7 +111,7 @@ describe('IT-1.5 GET /api/v1/sync/status', () => {
 
   it('returns 403 for employee', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/sync/status',
       headers: authHeaders(token, ''),
@@ -133,7 +133,7 @@ describe('§14.2 sync workflow isolation', () => {
 
   it('does not mutate leave request workflow state on re-sync', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(token),
@@ -157,7 +157,7 @@ describe('§14.2 sync workflow isolation', () => {
     const requestId = createRes.json().data.id;
 
     const adminToken = ctx.token('system_admin', { sub: 'admin' });
-    await ctx.app.inject({
+    await ctx.inject({
       method: 'POST',
       url: '/api/v1/sync/time-off',
       headers: authHeaders(adminToken, ''),

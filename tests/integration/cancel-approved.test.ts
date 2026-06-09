@@ -28,7 +28,7 @@ describe('IT-2.8 POST .../cancel (approved)', () => {
 
   it('calls correctTimeOffEntry and creates USAGE_REVERSAL ledger entry', async () => {
     const employeeToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(employeeToken),
@@ -43,7 +43,7 @@ describe('IT-2.8 POST .../cancel (approved)', () => {
     const requestId = createRes.json().data.id;
 
     const managerToken = ctx.token('manager', { sub: 'bob', employeeId: ctx.bobId });
-    const approveRes = await ctx.app.inject({
+    const approveRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: authHeaders(managerToken),
@@ -52,7 +52,7 @@ describe('IT-2.8 POST .../cancel (approved)', () => {
     expect(approveRes.statusCode).toBe(200);
     expect(approveRes.json().data.attributes.status).toBe('APPROVED');
 
-    const cancelRes = await ctx.app.inject({
+    const cancelRes = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/cancel`,
       headers: authHeaders(employeeToken, ''),

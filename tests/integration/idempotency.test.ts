@@ -30,7 +30,7 @@ describe('IT-2.6 Idempotency-Key on POST /api/v1/leave-requests', () => {
       dimensions: { locationId: 'US-NY' },
     });
 
-    const first = await ctx.app.inject({
+    const first = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: idempotencyHeaders(token, key),
@@ -39,7 +39,7 @@ describe('IT-2.6 Idempotency-Key on POST /api/v1/leave-requests', () => {
     expect(first.statusCode).toBe(201);
     const firstId = first.json().data.id;
 
-    const second = await ctx.app.inject({
+    const second = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: idempotencyHeaders(token, key),
@@ -53,7 +53,7 @@ describe('IT-2.6 Idempotency-Key on POST /api/v1/leave-requests', () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
     const key = '22222222-2222-2222-2222-222222222222';
 
-    const firstRes = await ctx.app.inject({
+    const firstRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: idempotencyHeaders(token, key),
@@ -66,7 +66,7 @@ describe('IT-2.6 Idempotency-Key on POST /api/v1/leave-requests', () => {
     });
     expect(firstRes.statusCode).toBe(201);
 
-    const conflict = await ctx.app.inject({
+    const conflict = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: idempotencyHeaders(token, key),
@@ -99,7 +99,7 @@ describe('IT-2.7 Idempotency-Key on approve/reject/sync', () => {
 
   it('approve replay returns identical response without duplicate HCM side effects', async () => {
     const employeeToken = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const createRes = await ctx.app.inject({
+    const createRes = await ctx.inject({
       method: 'POST',
       url: '/api/v1/leave-requests',
       headers: authHeaders(employeeToken),
@@ -116,7 +116,7 @@ describe('IT-2.7 Idempotency-Key on approve/reject/sync', () => {
     const key = '33333333-3333-3333-3333-333333333333';
     const approvePayload = { data: { type: 'approvals', attributes: { comment: 'ok' } } };
 
-    const first = await ctx.app.inject({
+    const first = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: idempotencyHeaders(managerToken, key),
@@ -124,7 +124,7 @@ describe('IT-2.7 Idempotency-Key on approve/reject/sync', () => {
     });
     expect(first.statusCode).toBe(200);
 
-    const second = await ctx.app.inject({
+    const second = await ctx.inject({
       method: 'POST',
       url: `/api/v1/leave-requests/${requestId}/approve`,
       headers: idempotencyHeaders(managerToken, key),

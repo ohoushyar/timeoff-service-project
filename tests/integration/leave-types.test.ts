@@ -19,7 +19,7 @@ describe('IT-1.6 GET /api/v1/leave-types', () => {
   });
 
   it('returns 401 without JWT', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/leave-types' });
+    const res = await ctx.inject({ method: 'GET', url: '/api/v1/leave-types' });
     expect(res.statusCode).toBe(401);
     expect(res.json().errors).toBeDefined();
     expect(res.json().jsonapi.version).toBe('1.1');
@@ -27,7 +27,7 @@ describe('IT-1.6 GET /api/v1/leave-types', () => {
 
   it('returns 200 authenticated with pagination meta and links', async () => {
     const token = ctx.token('employee', { sub: 'alice', employeeId: ctx.aliceId });
-    const res = await ctx.app.inject({
+    const res = await ctx.inject({
       method: 'GET',
       url: '/api/v1/leave-types?page[number]=1&page[size]=10',
       headers: authHeaders(token, ''),

@@ -79,7 +79,7 @@ The microservice is the workflow boundary. HCM remains the authority for employe
 
 The service consists of:
 
-- Fastify REST API layer.
+- NestJS REST API layer.
 - JSON:API serialization and error handling layer.
 - Authentication and authorization layer.
 - Domain services for requests, approvals, balances, policies, and notifications.
@@ -94,7 +94,7 @@ The service consists of:
 | Area | Requirement |
 |---|---|
 | Language | Node.js / TypeScript |
-| Web framework | Fastify |
+| Web framework | NestJS |
 | ORM | Prisma |
 | Development database | SQLite |
 | Authentication | JWT |
@@ -1012,7 +1012,7 @@ Expected `source` values include `workflow`, `hcm_realtime_response`, and `hcm_n
 
 ### 11.5 Maintainability
 
-- Fastify plugins should handle Prisma registration, JWT verification, route grouping, and request context.
+- NestJS modules should handle Prisma registration, JWT verification, controller grouping, and request context.
 - Route handlers should be thin.
 - HCM adapters should hide vendor-specific payloads from domain services; routes and jobs must obtain adapters through the provider factory, not vendor modules (Phase 3).
 - JSON:API serialization should be centralized.

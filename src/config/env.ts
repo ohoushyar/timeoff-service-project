@@ -27,6 +27,10 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v !== 'false' && v !== '0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  ENABLE_JOBS: z
+    .string()
+    .optional()
+    .transform((v) => v !== 'false' && v !== '0'),
 });
 
 export type Env = z.infer<typeof envSchema>;
