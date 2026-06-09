@@ -1,9 +1,9 @@
 # Time Off Management Microservice — Implementation Specification
 
 **Product owner:** MyCompany  
-**Version:** 1.9  
+**Version:** 2.0  
 **Status:** Final  
-**Source:** Derived from [trd.md](./trd.md) (TRD v2)  
+**Source:** Derived from [trd.md](./trd.md) (TRD v1.2)  
 **Stack:** Node.js / TypeScript · Fastify · Prisma · SQLite (dev) · JWT · cron  
 **HCM adapter (v1):** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`)
 
@@ -182,7 +182,7 @@ timeoff-service/
 2. **Services** — Domain orchestration, transactions, audit/notification side effects.
 3. **Engines** — Pure policy/approval rule evaluation against synced HCM data.
 4. **Repositories** — Prisma access only; no HTTP or JSON:API concerns.
-5. **Integrations** — HCM client/adapter isolated from domain services. Routes, jobs, and services depend on `HcmClient` via `createHcmClient()` only; they MUST NOT import vendor-specific packages (Phase 3 enforces factory indirection).
+5. **Integrations** — HCM client/adapter isolated from domain services. In Phase 1–2, domain code calls Workday through `HcmClient` and routes/jobs may still import `WorkdayAdapter` directly. From Phase 3 onward, all call sites MUST import `createHcmClient()` from `hcm.factory.ts` only; direct imports of any vendor adapter module are prohibited.
 
 ---
 
@@ -464,8 +464,10 @@ After each nightly sync, ledger-derived balance for a key must equal HCM `curren
 | `id` | UUID | PK |
 | `name` | string | |
 | `date` | Date | |
-| `location` | string? | null = global |
+| `location` | string? | null = global; matches `locationId` dimension for duration calculation |
 | `isActive` | boolean | |
+
+**v1 management:** Holidays are seeded via `prisma/seed.ts` and are **not** synchronized from HCM in v1. Duration calculations exclude holidays whose `location` matches the employee's filing `locationId` dimension (or global holidays where `location` is null). A future phase may add an admin endpoint or HCM sync; see OQ-9.
 
 #### Notification
 
@@ -570,7 +572,7 @@ Initial service bootstrap and recurring nightly sync aggregate paginated Workday
 
 **Conflict resolution:** HCM batch data overwrites employee snapshot and time-off working copy fields. Workflow records, approvals, notifications, audit logs, and existing ledger entries are **never** overwritten by batch data. Nightly sync must **not** import, infer, or overwrite local approval workflow state from HCM.
 
-### 6.1b Defensive Validation
+### 6.2 Defensive Validation
 
 HCM may reject invalid dimension combinations or insufficient balance when filing leave, but **must not be treated as the only validation layer**.
 
@@ -606,7 +608,7 @@ Available balance formula: `ledgerBalance - pendingBalance`, adjusted by synced 
 4. Call `POST /workers/{workerWID}/requestTimeOff` with `multipart/form-data` (`jsonData` part), `businessProcessParameters.action.id` = Submitted WID (API requirement for posting accounting entry; approval already occurred locally).
 5. On success: status → `APPROVED`; persist `hcmReferenceId`, `hcmPostedAt`; convert pending reservation to `CONFIRMED_USAGE`; refresh balance from HCM when returned; emit `REQUEST_APPROVED`.
 6. On HCM unavailability: status → `APPROVED_PENDING_HCM_UPDATE`; persist retry metadata; emit `APPROVAL_PENDING_HCM_UPDATE`; defer to hourly retry job.
-7. On HCM validation error: leave request in `PENDING` (or defined compensating flow); map Workday error codes (see §10.4).
+7. On HCM validation error: leave request in `PENDING` (or defined compensating flow); map Workday error codes (see §10.5).
 
 **On reject:**
 1. Status → `REJECTED`; append `RESERVATION_RELEASE` ledger entry.
@@ -624,7 +626,7 @@ Available balance formula: `ledgerBalance - pendingBalance`, adjusted by synced 
 
 **Principle:** Fail closed locally; HCM realtime validation at approve is supplementary. Nightly sync and optional `timeOffDetails` reads must not drive local approval workflow state.
 
-### 6.2 Leave Request Lifecycle
+### 6.3 Leave Request Lifecycle
 
 Employees request time off through the microservice API. Leave request and **approval workflow** are owned exclusively by the microservice. HCM holds employee and balance master data and receives accounting writes after local approval; it does not route or decide approvals. Nightly sync does not import HCM approval workflow state.
 
@@ -668,7 +670,7 @@ stateDiagram-v2
 
 **On submit (`PENDING`):**
 1. Resolve filing dimensions from request payload (required when HCM needs them).
-2. Run defensive validation (§6.1b).
+2. Run defensive validation (§6.2).
 3. Compute `durationDays` and persist.
 4. Attempt HCM balance read; fall back to local working copy + ledger on failure.
 5. Optionally run Workday preflight reads when configured.
@@ -709,7 +711,7 @@ stateDiagram-v2
 
 **HCM entry status reads (`timeOffDetails`):** Optional post-write verification only. Must **not** be used to import or reconcile local approval workflow state during nightly sync or background jobs.
 
-### 6.3 Policy Engine (synced HCM rules)
+### 6.4 Policy Engine (synced HCM rules)
 
 Policy rules are **synced from HCM** and cached locally for validation and approval routing. The microservice does not authoritatively define accrual or balance accounting rules.
 
@@ -744,7 +746,7 @@ Example synced rule payloads in `leave_policy_rules.config`:
 { "allowed": false, "maxNegativeDays": 0 }
 ```
 
-**Approval routing**
+**Approval routing** *(multi-step chains and `autoApprove` processing are **Phase 3** features; Phase 1–2 implement single-step manager approval only)*
 ```json
 {
   "steps": [
@@ -777,7 +779,7 @@ Example synced rule payloads in `leave_policy_rules.config`:
 
 Policy resolution order: most specific match wins (location + department + employment type + tenure), then fallback to broader policies.
 
-### 6.4 Balance Read Model
+### 6.5 Balance Read Model
 
 HCM final balances live in the nightly working copy (`leave_balances.currentBalance`). The **local balance ledger** is the source for workflow-derived balances, pending reservations, and reconciliation.
 
@@ -798,7 +800,7 @@ After nightly sync, `ledgerBalance` must equal HCM `currentBalance` for each key
 
 **Manual adjustments:** Not supported via microservice API. Performed in HCM; reflected via nightly sync adjustment entries.
 
-### 6.5 Approval Engine
+### 6.6 Approval Engine
 
 The microservice is the **only** source of approval workflow. HCM does not participate in routing or decision capture for requests submitted through this service.
 
@@ -807,8 +809,8 @@ The microservice is the **only** source of approval workflow. HCM does not parti
    - Level 1: employee's `managerId` from nightly snapshot.
    - Higher levels: HR approvers or additional managers per synced policy rules.
 3. Reject approvers who are inactive, terminated, or missing from snapshot.
-4. Auto-approve if policy matches.
-5. Multi-step: level N must be APPROVED before level N+1 becomes actionable.
+4. **(Phase 3)** Auto-approve if policy `autoApprove` rule matches; skip all approval steps.
+5. **(Phase 3)** Multi-step: level N must be APPROVED before level N+1 becomes actionable.
 6. Any REJECTED at any level → request REJECTED.
 7. Requests in `APPROVED_PENDING_HCM_UPDATE` are not eligible for manual re-approval; they wait for hourly HCM retry or auto-reject.
 
@@ -848,6 +850,7 @@ Algorithm: HS256 (dev); support RS256 in production via config without API contr
 | GET balances / ledger | ✓** | ✓** | ✓ | ✓ | — |
 | Reports (team/org) | — | ✓ | ✓ | ✓ | — |
 | Audit export | — | — | ✓ | ✓ | — |
+| POST HCM webhook | — | — | — | — | ✓ |
 
 \* Manager only for direct/indirect reports and when assigned as approver.
 
@@ -1101,7 +1104,7 @@ Reports return JSON:API collection documents with `meta.summary` for aggregates.
 
 Domain services, routes, and jobs depend on the vendor-neutral **`HcmClient`** contract only. Vendor-specific HTTP clients, payload shapes, and error codes live in per-provider adapters under `src/integrations/hcm/{provider}/`. **Phase 1–2** ship with `HCM_PROVIDER=workday` as the sole production adapter. **Phase 3** introduces the provider factory and capability model so additional HCM systems (e.g. SAP SuccessFactors) can be added without changing domain services.
 
-### 10.0 Multi-HCM Adapter Abstraction (Phase 3)
+### 10.1 Multi-HCM Adapter Abstraction (Phase 3)
 
 | Concern | Rule |
 |---|---|
@@ -1116,9 +1119,10 @@ Domain services, routes, and jobs depend on the vendor-neutral **`HcmClient`** c
 interface HcmAdapterCapabilities {
   provider: 'workday' | 'stub' | string;
   supportsBatchSync: boolean;
-  supportsPreflightValidation: boolean;   // e.g. Workday eligibleAbsenceTypes + validTimeOffDates
+  supportsPreflightValidation: boolean;   // Workday eligibleAbsenceTypes + validTimeOffDates
   supportsWebhookIngest: boolean;
-  supportsAccountingWrite: boolean;       // post approved usage + cancel/correct
+  supportsAccountingWrite: boolean;       // requestTimeOff + correctTimeOffEntry; must be true for
+                                          // any adapter used in a production approval workflow
   batchSyncStrategy: 'paginated_aggregate' | 'single_corpus' | 'custom';
 }
 
@@ -1128,14 +1132,17 @@ interface HcmClient {
   // Nightly batch aggregation
   fetchEmployeeSnapshots(params: BatchParams): Promise<EmployeeSnapshotPage>;
   fetchEligibleAbsenceTypes(workerExternalId: string): Promise<HcmLeaveType[]>;
-  fetchPolicies?(workerExternalId: string, leaveTypes: HcmLeaveType[]): Promise<HcmPolicy[]>;
+  fetchPolicies(workerExternalId: string, leaveTypes: HcmLeaveType[]): Promise<HcmPolicy[]>; // return [] if provider embeds policy in absence types
   fetchBalances(workerExternalId: string, effectiveDate: string): Promise<BalanceRow[]>;
 
-  // Realtime — balance reads and accounting writes
+  // Realtime accounting writes — MUST be implemented when capabilities.supportsAccountingWrite is true;
+  // adapters where supportsAccountingWrite is false (e.g. read-only test stubs) may throw HcmUnavailableError
   requestTimeOff(workerExternalId: string, payload: RequestTimeOffPayload): Promise<RequestTimeOffResult>;
   correctTimeOffEntry(workerExternalId: string, entryId: string): Promise<void>;
+
+  // Optional realtime helpers — callers MUST check capabilities before invoking
   getValidTimeOffDates?(workerExternalId: string, query: ValidDatesQuery): Promise<ValidDatesResult>;
-  getTimeOffDetails?(workerExternalId: string): Promise<TimeOffEntry[]>; // optional verify only
+  getTimeOffDetails?(workerExternalId: string): Promise<TimeOffEntry[]>; // optional post-write verify only
 }
 ```
 
@@ -1144,7 +1151,7 @@ interface HcmClient {
 - `StubAdapter` implementing `HcmClient` with in-memory fixtures for integration tests and as a template for future providers.
 - Workday remains the reference production adapter; SAP SuccessFactors (or other targets) are out of scope for Phase 3 implementation but MUST be addable by dropping in a new adapter + factory registration without domain changes.
 
-### 10.1 Workday Reference Adapter (Absence Management v5)
+### 10.2 Workday Reference Adapter (Absence Management v5)
 
 **Base path:** `https://{tenantHostname}/absenceManagement/v5`  
 **OpenAPI reference:** `docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`  
@@ -1152,7 +1159,7 @@ interface HcmClient {
 
 `WorkdayAdapter` implements `HcmClient` and hides all Workday payloads behind vendor-neutral types.
 
-### 10.2 Workday Endpoint Inventory
+### 10.3 Workday Endpoint Inventory
 
 | Purpose | Method | Workday endpoint |
 |---|---|---|
@@ -1166,7 +1173,7 @@ interface HcmClient {
 
 Nightly batch aggregates paginated collection responses—there is no single batch-corpus endpoint. Nightly sync must **not** import HCM approval queues or workflow state.
 
-### 10.3 Prescribed Approval Post Flow
+### 10.4 Prescribed Approval Post Flow
 
 Called at **approve** time only. Submit does **not** call Workday.
 
@@ -1179,9 +1186,9 @@ Approval JSON must include `days[]` with `date`, `timeOffType.id`, quantity fiel
 
 **Cancel of approved:** `correctTimeOffEntry` with `days[].correctedEntry.id` and `days[].delete=true`.
 
-**No REST approve/deny** in Absence Management v5. All approval workflow lives in the microservice. Optional `timeOffDetails` reads verify posted entries only—they must not drive local workflow state. Preflight steps run only when `capabilities.supportsPreflightValidation` is true (Workday with `WORKDAY_PREFLIGHT_ENABLED`).
+**No REST approve/deny** in Absence Management v5. All approval workflow lives in the microservice. Optional `timeOffDetails` reads verify posted entries only—they must not drive local workflow state. Preflight steps run only when `capabilities.supportsPreflightValidation` is `true` and `WORKDAY_PREFLIGHT_ENABLED` is set.
 
-### 10.4 Workday Error Mapping
+### 10.5 Workday Error Mapping
 
 | Workday code | Service error |
 |---|---|
@@ -1195,13 +1202,13 @@ Approval JSON must include `days[]` with `date`, `timeOffType.id`, quantity fiel
 
 Log Workday `error`, `errors[]`, and `code` in integration events—not in audit before/after snapshots.
 
-### 10.5 Retry Policy
+### 10.6 Retry Policy
 
 - Transient errors (5xx, network): exponential backoff, max 5 attempts.
 - Permanent errors (4xx except 429): log and skip record.
 - 429: respect `Retry-After` header.
 
-### 10.6 Webhook Support (optional phase)
+### 10.7 Webhook Support (optional phase)
 
 `POST /api/v1/integrations/hcm/webhook` (integration_client auth):
 - Validates signature header.
@@ -1231,7 +1238,6 @@ Log Workday `error`, `errors[]`, and `code` in integration events—not in audit
 | `approved_pending_hcm_update_count` | gauge | — |
 | `pending_approvals` | gauge | — |
 | `cron_job_total` | counter | job, status |
-| `workday_realtime_total` | counter | operation, outcome |
 | `hcm_realtime_total` | counter | provider, operation, outcome |
 | `sync_adjustment_total` | counter | leave_type |
 | `ledger_reconciliation_drift` | gauge | leave_type, dimensions_hash |
@@ -1376,7 +1382,7 @@ Endpoint coverage is defined per implementation phase in **§13** (IT-1.x throug
 - Audit logs exclude email
 - JSON:API schema validation on all public endpoints
 
-### 14.3 Acceptance Criteria (from TRD v2)
+### 14.3 Acceptance Criteria (from TRD v1.2)
 
 | # | Criterion | Verification |
 |---|---|---|
@@ -1413,6 +1419,7 @@ Endpoint coverage is defined per implementation phase in **§13** (IT-1.x throug
 | OQ-6 | `wd-warning-action: updateonwarning` on Workday warnings? | Off by default; enable only when product policy allows |
 | OQ-7 | Auto-cancel pending requests when sync adjustment drops available balance? | No in v1; surface warning only |
 | OQ-8 | HCM webhook signature scheme? | HMAC-SHA256 of raw body (optional phase) |
+| OQ-9 | Holiday management: source (seed, admin API, or HCM sync), per-location coverage, and update process? | Seeded via `seed.ts` in v1; no HCM sync; no admin endpoint in v1 |
 
 ---
 
@@ -1429,4 +1436,5 @@ Endpoint coverage is defined per implementation phase in **§13** (IT-1.x throug
 | 1.6 | 2026-06-06 | Aligned with TRD v2 workflow model: local submit without HCM write; HCM post at approve; `approved_pending_hcm_update` hourly retry; microservice-only approval workflow; no HCM approval sync in nightly batch |
 | 1.7 | 2026-06-06 | Per-phase integration test matrices (IT-1.x–IT-3.x) covering all endpoints introduced in each phase |
 | 1.8 | 2026-06-07 | Moved multi-step/HR/auto approval and Workday preflight from Phase 2 to Phase 3 (IT-3.6, IT-3.7); renumbered Phase 2 integration tests IT-2.8–IT-2.10 |
-| 1.9 | 2026-06-08 | Phase 3 HCM abstraction: `HCM_PROVIDER` factory, `HcmAdapterCapabilities`, vendor-neutral `HcmClient` (§10.0), `StubAdapter`, IT-3.8–IT-3.9 |
+| 1.9 | 2026-06-08 | Phase 3 HCM abstraction: `HCM_PROVIDER` factory, `HcmAdapterCapabilities`, vendor-neutral `HcmClient` (§10.1), `StubAdapter`, IT-3.8–IT-3.9 |
+| 2.0 | 2026-06-08 | Critical/medium editorial pass: Layering Rule 5 phase boundary clarified; §6.1b→§6.2 + cascade; §10.0→§10.1 + cascade; duplicate `workday_realtime_total` removed; `HcmClient` interface fixed (`fetchPolicies` required, `supportsAccountingWrite` guard note); Phase 3 markers on multi-step/auto-approve (§6.4, §6.6); webhook row in roles matrix; OQ-9 holiday management; Holiday entity v1 management note; TRD version reference corrected to v1.2 |

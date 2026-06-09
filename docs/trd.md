@@ -242,6 +242,8 @@ Requirements:
 - Include `lastSyncedAt` metadata where policy freshness matters.
 - Support policy dimensions required by HCM, such as location or other filing attributes.
 
+**Holiday data (v1):** Public holidays are managed as seed data (`prisma/seed.ts`) and are **not** synchronized from HCM in v1. Duration calculations exclude holidays whose location matches the employee's filing `locationId` dimension (or global holidays). A future phase may introduce an admin endpoint or HCM sync for holiday management; see OQ-9 in `docs/spec.md`.
+
 ### 6.4 Balance Management
 
 The service must expose balances using the nightly HCM working copy plus a microservice-owned local balance ledger. HCM remains authoritative for final balance values, while the local ledger supports workflow, audit, and reporting.
@@ -495,7 +497,7 @@ The microservice must integrate with customer HCM platforms (Workday, SAP Succes
 | Concern | Requirement |
 |---|---|
 | **Contract** | Domain services, routes, and background jobs depend on `HcmClient` and shared neutral types (employee snapshots, balance rows, accounting write payloads). Vendor HTTP clients, payload shapes, and auth live only inside adapter modules. |
-| **Provider selection** | The active adapter is resolved at startup from `HCM_PROVIDER` (default `workday` for v1). Invalid values fail fast. Implementation detail: `createHcmClient()` in `hcm.factory.ts` (`docs/spec.md` §10.0). |
+| **Provider selection** | The active adapter is resolved at startup from `HCM_PROVIDER` (default `workday` for v1). Invalid values fail fast. Implementation detail: `createHcmClient()` in `hcm.factory.ts` (`docs/spec.md` §10.1). |
 | **Capabilities** | Each adapter exposes capability metadata (e.g. batch sync strategy, preflight validation, webhook ingest, accounting writes) so domain code can use optional HCM features without scattering provider checks through services. |
 | **Error mapping** | Vendor error codes map to stable service errors (`HCM_VALIDATION_ERROR`, `HCM_INSUFFICIENT_BALANCE`, `HCM_UNAVAILABLE`, …) inside the adapter—not in domain services. |
 | **Workflow invariance** | Adapter choice does not change local approval workflow ownership. Submit/reject remain local-only; HCM receives accounting writes after local approval and on cancel of approved entries only. Nightly sync never imports HCM approval workflow state regardless of provider. |
@@ -508,7 +510,7 @@ The microservice must integrate with customer HCM platforms (Workday, SAP Succes
 | Phase 1–2 | Workday is the sole production adapter (`HCM_PROVIDER=workday`). Domain code may call Workday through `HcmClient`; routes/jobs may still import the Workday adapter directly until Phase 3 refactor. |
 | Phase 3 | Provider factory, capability model, and `StubAdapter` for automated tests and future provider scaffolding. All routes and jobs import `createHcmClient` from the factory only. SAP SuccessFactors and other targets are out of Phase 3 implementation scope but must be addable without domain changes. |
 
-**Reference implementation:** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`). Detailed contract, capabilities interface, and adapter layout: `docs/spec.md` §10.0–§10.1.
+**Reference implementation:** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`). Detailed contract, capabilities interface, and adapter layout: `docs/spec.md` §10.1–§10.2.
 
 ### 7.2 HCM Integration Surfaces
 
@@ -711,6 +713,8 @@ Employee and sync endpoints:
 - `GET /api/v1/employees/{id}`
 - `GET /api/v1/sync/status`
 - `POST /api/v1/sync/time-off`
+- `GET /api/v1/sync-runs` *(Phase 2)*
+- `GET /api/v1/sync-runs/{id}` *(Phase 2)*
 
 Leave type and policy endpoints:
 
@@ -1102,10 +1106,10 @@ The implementation is acceptable when:
 - Nightly sync imports employee snapshot fields and time-off master data only; it does not import or reconcile HCM approval workflow state into local leave requests.
 - Submit creates local `pending` workflow state and a pending reservation ledger entry without calling Workday `requestTimeOff`.
 - When HCM realtime balance reads fail at submit, the service validates against local working-copy and ledger data and still creates pending workflow state when validation passes.
-- Workday approval uses `POST /workers/{workerWID}/requestTimeOff` with Submitted business-process action WID `d9e4223e446c11de98360015c5e6daf6`, preceded by retried balance reads.
+- For `HCM_PROVIDER=workday` (v1): approval uses `POST /workers/{workerWID}/requestTimeOff` with Submitted business-process action WID `d9e4223e446c11de98360015c5e6daf6`, preceded by retried balance reads.
 - When the HCM realtime API is unavailable at approval, the request transitions to `approved_pending_hcm_update`, hourly retries run for up to 24 hours, and exhausted retries auto-reject the request and release pending reservations.
 - Reject updates local workflow to `rejected`, releases pending reservations, and does not write to HCM.
-- Workday cancel of approved entries uses `POST /workers/{workerWID}/correctTimeOffEntry` with `delete=true`, followed by a local ledger entry that inverts the approved usage.
+- For `HCM_PROVIDER=workday` (v1): cancel of approved entries uses `POST /workers/{workerWID}/correctTimeOffEntry` with `delete=true`, followed by a local ledger entry that inverts the approved usage.
 - Local defensive validation runs before submit, before HCM realtime writes, and uses local fallback data when HCM reads are unavailable at submit.
 - Initial bootstrap creates the local database baseline from HCM batch data.
 - Recurring nightly batch sync upserts employee snapshot fields and imports time-off working copy data.
@@ -1269,7 +1273,7 @@ The following domain logic must remain testable outside HTTP route handlers (see
 
 ### 16.5 Manual QA Checklists by Persona (Optional)
 
-These checklists support exploratory testing and are **not** required for release (§16.8). Use them when QA or operations want to validate a deployment beyond CI. Prerequisites: valid JWTs per role, HCM sandbox or `HCM_MOCK_MODE`, seeded or synced employees with manager hierarchy, at least one leave type with dimensional balance.
+These checklists support exploratory testing and are **not** required for release (§16.8). Use them when QA or operations want to validate a deployment beyond CI. Prerequisites: valid JWTs per role, HCM sandbox or `HCM_PROVIDER=stub` (in-memory adapter), seeded or synced employees with manager hierarchy, at least one leave type with dimensional balance.
 
 #### Employee
 
@@ -1368,3 +1372,4 @@ Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended 
 | 1.0 | 2026-06-08 | Added §16 Testing Requirements: scenario traceability matrix, workflow scenarios, manual QA checklists, authorization matrix, and release gate |
 | 1.1 | 2026-06-08 | Clarified manual QA checklists are optional guidance; release gate is automated tests only |
 | 1.2 | 2026-06-08 | §7.1 HCM adapter abstraction (multi-provider); renumbered §7.2–§7.6; Phase 3 test scenarios TS-34–TS-35; aligned with `docs/spec.md` v1.9 |
+| 1.3 | 2026-06-08 | Critical/medium fixes: `sync-runs` endpoints added to §8.4; Workday-specific AC bullets in §15 qualified with `HCM_PROVIDER=workday` prefix; `HCM_MOCK_MODE` replaced with `HCM_PROVIDER=stub` in §16.5; spec cross-ref updated to §10.1–§10.2; holiday management note added to §6.3; aligned with `docs/spec.md` v2.0 |
