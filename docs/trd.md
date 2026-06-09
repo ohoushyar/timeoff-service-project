@@ -1106,10 +1106,10 @@ The implementation is acceptable when:
 - Nightly sync imports employee snapshot fields and time-off master data only; it does not import or reconcile HCM approval workflow state into local leave requests.
 - Submit creates local `pending` workflow state and a pending reservation ledger entry without calling Workday `requestTimeOff`.
 - When HCM realtime balance reads fail at submit, the service validates against local working-copy and ledger data and still creates pending workflow state when validation passes.
-- For `HCM_PROVIDER=workday` (v1): approval uses `POST /workers/{workerWID}/requestTimeOff` with Submitted business-process action WID `d9e4223e446c11de98360015c5e6daf6`, preceded by retried balance reads.
+- For `HCM_PROVIDER=workday` (v1): after local approval, the adapter posts the accounting entry via `POST /workers/{workerWID}/requestTimeOff` with `businessProcessParameters.action.id` set to the Workday **Submitted** business-process action WID `d9e4223e446c11de98360015c5e6daf6`. Workday Absence Management requires this value to submit the Request Time Off business process event (see `docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`); it is **not** sent at microservice submit. Retried balance reads precede the write.
 - When the HCM realtime API is unavailable at approval, the request transitions to `approved_pending_hcm_update`, hourly retries run for up to 24 hours, and exhausted retries auto-reject the request and release pending reservations.
 - Reject updates local workflow to `rejected`, releases pending reservations, and does not write to HCM.
-- For `HCM_PROVIDER=workday` (v1): cancel of approved entries uses `POST /workers/{workerWID}/correctTimeOffEntry` with `delete=true`, followed by a local ledger entry that inverts the approved usage.
+- For `HCM_PROVIDER=workday` (v1): cancel of approved entries uses `POST /workers/{workerWID}/correctTimeOffEntry` with `delete=true`, the same required **Submitted** action WID `d9e4223e446c11de98360015c5e6daf6` in `businessProcessParameters.action.id`, followed by a local ledger entry that inverts the approved usage.
 - Local defensive validation runs before submit, before HCM realtime writes, and uses local fallback data when HCM reads are unavailable at submit.
 - Initial bootstrap creates the local database baseline from HCM batch data.
 - Recurring nightly batch sync upserts employee snapshot fields and imports time-off working copy data.
