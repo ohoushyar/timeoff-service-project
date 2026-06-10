@@ -100,6 +100,7 @@ The service consists of:
 | Authentication | JWT |
 | Background jobs | cron |
 | API style | REST over HTTPS with JSON:API v1.1 payloads |
+| Deployment (Phase 3) | Docker multi-stage image + `docker-compose` for local, CI smoke, and staging |
 
 ### 4.3 Architectural Principles
 
@@ -508,7 +509,7 @@ The microservice must integrate with customer HCM platforms (Workday, SAP Succes
 | Phase | Scope |
 |---|---|
 | Phase 1–2 | Workday is the sole production adapter (`HCM_PROVIDER=workday`). Domain code may call Workday through `HcmClient`; routes/jobs may still import the Workday adapter directly until Phase 3 refactor. |
-| Phase 3 | Provider factory, capability model, and `StubAdapter` for automated tests and future provider scaffolding. All routes and jobs import `createHcmClient` from the factory only. SAP SuccessFactors and other targets are out of Phase 3 implementation scope but must be addable without domain changes. |
+| Phase 3 | Provider factory, capability model, and `StubAdapter` for automated tests and future provider scaffolding. All routes and jobs import `createHcmClient` from the factory only. Minimal containerized deployment (Dockerfile, `docker-compose.yml`, entrypoint) for local, CI smoke, and staging (§12.1). SAP SuccessFactors and other targets are out of Phase 3 implementation scope but must be addable without domain changes. Kubernetes and managed orchestration are out of Phase 3 scope. |
 
 **Reference implementation:** Workday Absence Management v5 (`docs/hcm/workday/absenceManagement_v5_20260530_oas2.json`). Detailed contract, capabilities interface, and adapter layout: `docs/spec.md` §10.1–§10.2.
 
@@ -1050,6 +1051,56 @@ Health endpoints:
 - Keep workflow state available even when HCM sync is stale, while exposing staleness clearly in metadata.
 - Document runbooks for HCM outage, failed nightly sync, repeated HCM validation errors, exhausted HCM approval retries, and data reconciliation.
 
+### 12.1 Containerized Deployment (Phase 3)
+
+Phase 3 delivers a **minimal Docker-based deployment** for local development, CI smoke tests, and staging. Full production orchestration (Kubernetes, Helm, managed PaaS manifests) is out of Phase 3 scope; Phase 3 artifacts must remain portable so operations can wrap them later.
+
+**Deliverables:**
+
+| Artifact | Requirement |
+|---|---|
+| `Dockerfile` | Multi-stage build on Node.js 20+; compile TypeScript; production runtime image with compiled `dist/` only |
+| `docker-compose.yml` | Single-command stack (`docker compose up --build`) exposing the API and wiring required environment variables |
+| `.dockerignore` | Exclude `node_modules`, local databases, `.env`, tests, and dev artifacts from the build context |
+| Entrypoint script | Run `prisma migrate deploy` before `node dist/main.js`; optional guarded seed for demo environments |
+
+**Container runtime requirements:**
+
+- The process must listen on `0.0.0.0:${PORT}` (default `3000`).
+- **Liveness:** `GET /health/live` — container restarts when the process is unresponsive.
+- **Readiness:** `GET /health/ready` — load balancers and compose health checks wait until Prisma can query the database.
+- Background cron jobs (`@nestjs/schedule`) run **in-process** inside the same container. Phase 3 assumes **a single replica**; horizontal scaling and external schedulers are out of scope.
+- Secrets (`JWT_SECRET`, HCM credentials) are injected via environment variables or a secrets manager at runtime—not baked into the image.
+
+**Database persistence:**
+
+- **Dev / demo / staging (Phase 3 default):** SQLite on a **named Docker volume** (e.g. `DATABASE_URL=file:/data/timeoff.db`). Data must survive container restarts.
+- **Production:** SQLite-in-container is **not** a production target. Production deployments must use a relational database (PostgreSQL per Phase 3 migration guide in `docs/spec.md` §13) by swapping `DATABASE_URL`; the same image must support both without code changes.
+
+**Compose topology (Phase 3 minimum):**
+
+| Service | Required | Purpose |
+|---|---|---|
+| `timeoff` | Yes | NestJS API + in-process cron |
+| `workday-mock` | No | Optional companion for Workday adapter integration tests without a live tenant (`npm run mock:workday`) |
+
+**Environment profiles:**
+
+| Profile | `HCM_PROVIDER` | Use case |
+|---|---|---|
+| Self-contained demo | `stub` | No external HCM tenant; full workflow path against in-memory adapter |
+| Workday integration | `workday` | Requires `WORKDAY_*` credentials and reachable tenant (or optional `workday-mock` service) |
+
+All other configuration follows `docs/spec.md` §4 (`JWT_SECRET`, cron schedules, retry windows, etc.).
+
+**Operational expectations:**
+
+- `docker compose up --build` starts a healthy API within the readiness probe window after migrations complete.
+- Operators can trigger manual sync and inspect health/sync status through the existing API endpoints (§6.2, §11.6).
+- CI may build the image and run a smoke test against `/health/live` and `/health/ready` without a live HCM tenant when `HCM_PROVIDER=stub`.
+
+Implementation file layout and compose examples: `docs/spec.md` Phase 3 (Operations & Advanced Workflow).
+
 ---
 
 ## 13. Assumptions
@@ -1125,6 +1176,7 @@ The implementation is acceptable when:
 - HCM outages do not block reads of existing workflow state or last-synced balances, and do not block local submit or reject when local validation passes. Approve may defer HCM writes into `approved_pending_hcm_update` with hourly retries for up to 24 hours; cancel-of-approved HCM writes still fail safely when HCM is unavailable unless a defined compensating flow applies.
 - Audit logs capture workflow and integration events without leaking email, credentials, or sensitive HCM payloads.
 - Domain services depend on the vendor-neutral HCM adapter contract only; Phase 3 verifies that routes and jobs resolve adapters through `HCM_PROVIDER` factory indirection with no direct vendor imports (see §7.1, `docs/spec.md` IT-3.8–IT-3.9).
+- **Phase 3:** A multi-stage Docker image and `docker-compose.yml` enable single-command local/staging deployment (§12.1). Container startup applies Prisma migrations before serving traffic; liveness and readiness probes succeed; SQLite data persists across restarts via a named volume when `DATABASE_URL=file:/data/timeoff.db`; `HCM_PROVIDER=stub` supports a self-contained demo without an external HCM tenant.
 
 ---
 
@@ -1190,6 +1242,7 @@ Each scenario maps to TRD acceptance criteria (§15), an automated test identifi
 | TS-33 | Metrics and staleness visibility in operational responses | §11.6 | IT-3.2–3.4 (Phase 3) | Inspect `/metrics` and sync-status staleness fields |
 | TS-34 | HCM provider factory: `workday` and `stub` adapters; no direct vendor imports from routes/jobs | §7.1 | IT-3.8 (Phase 3) | Run integration suite with `HCM_PROVIDER=stub`; confirm full workflow path |
 | TS-35 | Adapter capability branching (preflight, webhook) without provider checks in domain services | §7.1 | IT-3.9 (Phase 3) | Disable preflight capability; confirm approve skips optional HCM reads |
+| TS-36 | Docker compose smoke: build, migrate, health probes, API reachable with `HCM_PROVIDER=stub` | §12.1 (Phase 3) | CI docker smoke (Phase 3) | `docker compose up --build`; curl `/health/live` and `/health/ready`; restart container; confirm DB volume persists |
 
 **Coverage legend:** *Automated* references map to `docs/spec.md` IT- IDs and `tests/` suites and are the release gate. *Optional manual QA* suggestions help exploratory testing but are not required to ship. Scenarios marked *Phase 3* or *planned* remain gated on automated tests landing or explicit product waiver.
 
@@ -1359,7 +1412,7 @@ A release candidate is test-complete when:
 
 1. All **Phase 1 and Phase 2** automated scenarios (TS-01 through TS-29, excluding Phase 3-only rows) pass in CI.
 2. Every §15 acceptance criterion has at least one passing **automated** verification (unit, integration, or contract tests).
-3. Known gaps (Phase 3 scenarios TS-30 through TS-35) are explicitly waived or scheduled with product sign-off.
+3. Known gaps (Phase 3 scenarios TS-30 through TS-36) are explicitly waived or scheduled with product sign-off.
 
 Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended for major HCM or auth changes but are **not** release blockers. Implementation partners should update the *Automated* column in §16.2 when new tests land.
 
@@ -1373,3 +1426,4 @@ Manual QA checklists (§16.5–§16.7) and staging walkthroughs are recommended 
 | 1.1 | 2026-06-08 | Clarified manual QA checklists are optional guidance; release gate is automated tests only |
 | 1.2 | 2026-06-08 | §7.1 HCM adapter abstraction (multi-provider); renumbered §7.2–§7.6; Phase 3 test scenarios TS-34–TS-35; aligned with `docs/spec.md` v1.9 |
 | 1.3 | 2026-06-08 | Critical/medium fixes: `sync-runs` endpoints added to §8.4; Workday-specific AC bullets in §15 qualified with `HCM_PROVIDER=workday` prefix; `HCM_MOCK_MODE` replaced with `HCM_PROVIDER=stub` in §16.5; spec cross-ref updated to §10.1–§10.2; holiday management note added to §6.3; aligned with `docs/spec.md` v2.0 |
+| 1.4 | 2026-06-09 | Phase 3 minimal Docker deployment: §12.1 containerized deployment requirements; §4.2 stack row; §7.1 Phase 3 scope; §15 acceptance criterion; TS-36 smoke scenario |
