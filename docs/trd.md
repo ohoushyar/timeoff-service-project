@@ -323,7 +323,7 @@ sequenceDiagram
                 end
             end
         else HCM validation error at approve
-            Note over TOS: Request remains pending; map to JSON:API error
+            Note over TOS: Request remains pending — return JSON API error
             TOS-->>Client: 422 HCM_VALIDATION_ERROR / POLICY_VIOLATION
         end
     end
